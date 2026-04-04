@@ -11,6 +11,7 @@
 #include "engine/sky/SkyCloud.h"
 #include "engine/sky/SkySnow.h"
 #include "engine/sky/SkyStar.h"
+#include "port/vr/VRManager.h"
 
 extern "C" {
 #include "macros.h"
@@ -199,7 +200,21 @@ void Sky::Draw(ScreenContext* screen) { // func_802A4A0C(Vtx* vtx, ScreenContext
     sp5C[2] = 30000.0f;
     func_802B5564(matrix1, &sp128, camera->unk_B4, gScreenAspect, CM_GetProps()->NearPersp, CM_GetProps()->FarPersp,
                   1.0f);
-    func_802B5794(matrix2, camera->pos, camera->lookAt);
+
+    if (VR_IsActive()) {
+        VREyeData rigCenter = VR_GetRigCenterData();
+        // Use the rig center's view matrix directly. 
+        // We zero out the translation to keep the sky at infinity.
+        Mat4 rigView;
+        std::memcpy(rigView, rigCenter.viewMatrix, sizeof(float) * 16);
+        rigView[3][0] = rigView[3][1] = rigView[3][2] = 0.0f;
+        
+        // OpenXR view matrix is already the inverse of camera transform (LookAt)
+        std::memcpy(matrix2, rigView, sizeof(float) * 16);
+    } else {
+        func_802B5794(matrix2, camera->pos, camera->lookAt);
+    }
+    
     mtxf_multiplication(matrix3, matrix1, matrix2);
 
     sp58 = ((matrix3[0][3] * sp5C[0]) + (matrix3[1][3] * sp5C[1]) + (matrix3[2][3] * sp5C[2])) + matrix3[3][3];

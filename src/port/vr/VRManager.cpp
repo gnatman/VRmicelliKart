@@ -278,6 +278,17 @@ VREyeData VR_GetEyeData(int eye) {
     return sEyeData[eye];
 }
 
+VREyeData VR_GetRigCenterData() {
+    VREyeData center;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            center.projectionMatrix[i][j] = (sEyeData[0].projectionMatrix[i][j] + sEyeData[1].projectionMatrix[i][j]) * 0.5f;
+            center.viewMatrix[i][j] = (sEyeData[0].viewMatrix[i][j] + sEyeData[1].viewMatrix[i][j]) * 0.5f;
+        }
+    }
+    return center;
+}
+
 void VR_BindEye(int eye) {
     if (!VR_IsActive() || eye < 0 || eye > 1) return;
 

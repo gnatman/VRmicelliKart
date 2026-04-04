@@ -48,6 +48,7 @@
 #include "engine/Matrix.h"
 #include "engine/tracks/Track.h"
 #include "engine/TrackBrowser.h"
+#include "port/vr/VRManager.h"
 #include "src/engine/HM_Intro.h"
 #include "src/port/interpolation/FrameInterpolation.h"
 #include "heap.h"
@@ -2571,7 +2572,11 @@ void func_80094A64(struct GfxPool* pool) {
     gMatrixEffectCount = 0;
     gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(D_802B8880));
     gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    
+    // For VR, we'll keep it as Ortho for now to avoid build issues with C++ math.
+    // The dual-render loop in Engine.cpp will naturally place this in both eyes.
     guOrtho(GetScreenMatrix(), 0.0f, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, 0.0f, -100.0f, 100.0f, 1.0f);
+    
     gSPMatrix(gDisplayListHead++, GetScreenMatrix(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
     gSPDisplayList(gDisplayListHead++, D_02007650);
     setup_menus();
