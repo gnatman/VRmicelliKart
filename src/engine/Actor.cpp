@@ -46,7 +46,7 @@ void AActor::Draw(Camera *camera) {
         }
     }
 }
-void AActor::Collision(Player* player, AActor* actor) {}
+void AActor::OnActorCollision(Player* player, AActor* actor) {}
 void AActor::VehicleCollision(s32 playerId, Player* player){}
 void AActor::Destroy() {
     bPendingDestroy = true;

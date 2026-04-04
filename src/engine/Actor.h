@@ -54,7 +54,7 @@ public:
     virtual void BeginPlay();
     virtual void Tick();
     virtual void Draw(Camera* camera);
-    virtual void Collision(Player* player, AActor* actor);
+    virtual void OnActorCollision(Player* player, AActor* actor);
     virtual void VehicleCollision(s32 playerId, Player* player);
     void SetLocation(FVector pos);
 

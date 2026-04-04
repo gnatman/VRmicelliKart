@@ -33,7 +33,7 @@ public:
     virtual void BeginPlay() override;
     virtual void SetSpawnParams(SpawnParams& params) override;
     virtual void DrawEditorProperties() override;
-    virtual void Collision(Player* player, AActor* actor) override;
+    virtual void OnActorCollision(Player* player, AActor* actor) override;
     virtual bool IsMod() override;
 
     bool PickedUp = false;

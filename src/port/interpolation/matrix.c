@@ -354,10 +354,12 @@ void Matrix_ToMtx(Mtx* dest) {
     guMtxF2L(gGfxMatrix->mf, dest);
 }
 
+/*
 // Converts the Mtx src to a Matrix, putting the result in dest
 void Matrix_FromMtx(Mtx* src, Matrix* dest) {
     guMtxF2L(src->m, dest->mf);
 }
+*/
 
 // Applies the transform matrix mtx to the vector src, putting the result in dest
 void Matrix_MultVec3f(Matrix* mtx, Vec3f* src, Vec3f* dest) {

@@ -210,26 +210,26 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 endif()
 
 # Include directories
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/assets
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/racing
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ending
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/data
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/buffers
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/debug
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/tracks
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/actors
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/objects
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/sky
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/particles
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/freecam
-)
+# include_directories(
+#     ${CMAKE_CURRENT_SOURCE_DIR}
+#     ${CMAKE_CURRENT_SOURCE_DIR}/include
+#     ${CMAKE_CURRENT_SOURCE_DIR}/include/assets
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/racing
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/ending
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/data
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/buffers
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/debug
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/tracks
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/actors
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/objects
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/sky
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/particles
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements
+#     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/freecam
+# )
 
 # Collect source files to build the executable
 file(GLOB ALL_FILES_ROOT RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -263,6 +263,10 @@ file(GLOB_RECURSE ALL_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     "src/port/*.h"
     "src/port/*.c"
     "src/port/*.cpp"
+    "src/port/telemetry/*.cpp"
+    "src/port/telemetry/*.h"
+    "src/port/vr/*.cpp"
+    "src/port/vr/*.h"
     "src/mods/*.h"
     "src/mods/*.c"
     "src/mods/*.cpp"
@@ -275,6 +279,8 @@ file(GLOB_RECURSE ALL_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     "src/engine/tracks/*.h"
     "src/engine/actors/*.cpp"
     "src/engine/actors/*.h"
+    "src/engine/cameras/*.cpp"
+    "src/engine/cameras/*.h"
     "src/engine/objects/*.cpp"
     "src/engine/objects/*.h"
     "src/engine/sky/*.cpp"
@@ -317,6 +323,27 @@ if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
     )
 else()
   add_executable(${PROJECT_NAME} ${ALL_FILES})
+  target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/assets
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/racing
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ending
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/data
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/buffers
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/debug
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/tracks
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/actors
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/cameras
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/objects
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/sky
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/particles
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/freecam
+  )
 endif()
 
 
@@ -384,6 +411,14 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tomlplusplus)
 target_link_libraries(${PROJECT_NAME} PRIVATE tomlplusplus::tomlplusplus)
 
+#=================== OpenXR ===================
+FetchContent_Declare(
+    openxr
+    GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
+    GIT_TAG        release-1.1.58
+)
+FetchContent_MakeAvailable(openxr)
+
 #==============================================================================#
 # Libultraship Integration                                                     #
 #==============================================================================#
@@ -408,7 +443,7 @@ include_directories(
 
 add_subdirectory(libultraship ${CMAKE_CURRENT_SOURCE_DIR}/libultraship)
 add_dependencies(${PROJECT_NAME} libultraship)
-target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
+target_link_libraries(${PROJECT_NAME} PRIVATE libultraship openxr_loader)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
   target_compile_definitions(${PROJECT_NAME} PRIVATE

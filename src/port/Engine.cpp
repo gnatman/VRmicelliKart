@@ -392,6 +392,10 @@ void GameEngine::StartFrame() const {
 //     Instance->context->GetWindow()->MainLoop(run_one_game_iter);
 // }
 
+#include "port/vr/VRManager.h"
+#include "engine/World.h"
+#include "engine/cameras/VRCamera.h"
+
 void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
 
@@ -407,7 +411,48 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
     interpreter->mInterpolationIndex = 0;
 
     for (const auto& mtxStack : mtx_replacements) {
-        wnd->DrawAndRunGraphicsCommands(pool, mtxStack);
+        if (VR_IsActive()) {
+            VR_BeginFrame();
+            
+            wnd->GetMouseStateManager()->StartFrame();
+            wnd->GetGui()->StartDraw();
+            interpreter->StartFrame();
+
+            for (int eye = 0; eye < 2; eye++) {
+                VREyeData eyeData = VR_GetEyeData(eye);
+                
+                std::unordered_map<Mtx*, MtxF> vrStack = mtxStack;
+                
+                // If we have a VR camera, replace its projection and lookat matrices
+                if (World::Instance != nullptr && !World::Instance->Cameras.empty()) {
+                    auto* cam = World::Instance->Cameras[0].get();
+                    
+                    MtxF projF;
+                    std::memcpy(&projF, eyeData.projectionMatrix, sizeof(float) * 16);
+                    vrStack[cam->GetPerspMatrix()] = projF;
+                    
+                    MtxF viewF;
+                    std::memcpy(&viewF, eyeData.viewMatrix, sizeof(float) * 16);
+                    vrStack[cam->GetLookAtMatrix()] = viewF;
+                }
+
+                // Bind the eye swapchain FBO
+                VR_BindEye(eye);
+
+                // Execute the games gfx commands
+                wnd->DrawVRCommands(pool, vrStack);
+
+                // Commit the eye
+                VR_CommitEye(eye);
+            }
+
+            wnd->GetGui()->EndDraw();
+            interpreter->EndFrame();
+
+            VR_EndFrame();
+        } else {
+            wnd->DrawAndRunGraphicsCommands(pool, mtxStack);
+        }
         interpreter->mInterpolationIndex++;
     }
 

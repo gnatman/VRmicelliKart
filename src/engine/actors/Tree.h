@@ -30,6 +30,6 @@ public:
 
     virtual void Tick() override;
     virtual void Draw(Camera* camera) override;
-    virtual void Collision(Player*, AActor*) override;
+    virtual void OnActorCollision(Player*, AActor*) override;
     virtual void Destroy() override;
 };

@@ -43,7 +43,7 @@ public:
     virtual void Tick() override;
     virtual void Draw(Camera*) override;
     virtual void BeginPlay() override;
-    virtual void Collision(Player* player, AActor* actor) override;
+    virtual void OnActorCollision(Player* player, AActor* actor) override;
     virtual bool IsMod() override;
 
     bool bIsFinishline = false;

@@ -101,7 +101,7 @@ void AFinishline::Draw(Camera *camera) {
     FrameInterpolation_RecordCloseChild();
 }
 
-void AFinishline::Collision(Player* player, AActor* actor) {
+void AFinishline::OnActorCollision(Player* player, AActor* actor) {
 }
 
 bool AFinishline::IsMod() {

@@ -87,7 +87,7 @@ void ACloud::Draw(Camera* camera) {
     }
 }
 
-void ACloud::Collision(Player* player, AActor* actor) {
+void ACloud::OnActorCollision(Player* player, AActor* actor) {
     if (!PickedUp) {
         if (query_collision_player_vs_actor_item(player, GetWorld()->ConvertAActorToActor(actor))) {
             // Player has picked up the actor, activate the cloud effect

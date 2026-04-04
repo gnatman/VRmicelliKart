@@ -157,11 +157,11 @@ namespace UIWidgets {
             defaultValue = defaultValue_;
             return *this;
         }
-        CheckboxOptions& ComponentAlignment(ComponentAlignment alignment_) {
+        CheckboxOptions& WithComponentAlignment(ComponentAlignment alignment_) {
             alignment = alignment_;
             return *this;
         }
-        CheckboxOptions& LabelPosition(LabelPosition labelPosition_) {
+        CheckboxOptions& WithLabelPosition(LabelPosition labelPosition_) {
             labelPosition = labelPosition_;
             return *this;
         }
@@ -191,11 +191,11 @@ namespace UIWidgets {
             defaultIndex = defaultIndex_;
             return *this;
         }
-        ComboboxOptions& ComponentAlignment(ComponentAlignment alignment_) {
+        ComboboxOptions& WithComponentAlignment(ComponentAlignment alignment_) {
             alignment = alignment_;
             return *this;
         }
-        ComboboxOptions& LabelPosition(LabelPosition labelPosition_) {
+        ComboboxOptions& WithLabelPosition(LabelPosition labelPosition_) {
             labelPosition = labelPosition_;
             return *this;
         }
@@ -245,11 +245,11 @@ namespace UIWidgets {
             defaultValue = defaultValue_;
             return *this;
         }
-        IntSliderOptions& ComponentAlignment(ComponentAlignment alignment_) {
+        IntSliderOptions& WithComponentAlignment(ComponentAlignment alignment_) {
             alignment = alignment_;
             return *this;
         }
-        IntSliderOptions& LabelPosition(LabelPosition labelPosition_) {
+        IntSliderOptions& WithLabelPosition(LabelPosition labelPosition_) {
             labelPosition = labelPosition_;
             return *this;
         }
@@ -300,11 +300,11 @@ namespace UIWidgets {
             defaultValue = defaultValue_;
             return *this;
         }
-        FloatSliderOptions& ComponentAlignment(ComponentAlignment alignment_) {
+        FloatSliderOptions& WithComponentAlignment(ComponentAlignment alignment_) {
             alignment = alignment_;
             return *this;
         }
-        FloatSliderOptions& LabelPosition(LabelPosition labelPosition_) {
+        FloatSliderOptions& WithLabelPosition(LabelPosition labelPosition_) {
             labelPosition = labelPosition_;
             return *this;
         }

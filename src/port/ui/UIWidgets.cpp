@@ -549,7 +549,7 @@ void DrawFlagArray32(const std::string& name, uint32_t& flags) {
         bool flag = (flags & bitMask) != 0;
         std::string label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
         if (UIWidgets::Checkbox(label.c_str(), &flag,
-                                CheckboxOptions{ { .tooltip = label.c_str() } }.LabelPosition(LabelPosition::None))) {
+                                CheckboxOptions{ { .tooltip = label.c_str() } }.WithLabelPosition(LabelPosition::None))) {
             if (flag) {
                 flags |= bitMask;
             } else {
@@ -572,7 +572,7 @@ void DrawFlagArray16(const std::string& name, uint16_t& flags) {
         bool flag = (flags & bitMask) != 0;
         std::string label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
         if (UIWidgets::Checkbox(label.c_str(), &flag,
-                                CheckboxOptions{ { .tooltip = label.c_str() } }.LabelPosition(LabelPosition::None))) {
+                                CheckboxOptions{ { .tooltip = label.c_str() } }.WithLabelPosition(LabelPosition::None))) {
             if (flag) {
                 flags |= bitMask;
             } else {
@@ -595,7 +595,7 @@ void DrawFlagArray8(const std::string& name, uint8_t& flags) {
         bool flag = (flags & bitMask) != 0;
         std::string label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
         if (UIWidgets::Checkbox(label.c_str(), &flag,
-                                CheckboxOptions{ { .tooltip = label.c_str() } }.LabelPosition(LabelPosition::None))) {
+                                CheckboxOptions{ { .tooltip = label.c_str() } }.WithLabelPosition(LabelPosition::None))) {
             if (flag) {
                 flags |= bitMask;
             } else {
@@ -618,7 +618,7 @@ void DrawFlagArray8Mask(const std::string& name, uint8_t& flags) {
         bool flag = (flags & bitMask) != 0;
         std::string label = fmt::format("0x{:02X} ({})", bitMask, flagIndex);
         if (UIWidgets::Checkbox(label.c_str(), &flag,
-                                CheckboxOptions{ { .tooltip = label.c_str() } }.LabelPosition(LabelPosition::None))) {
+                                CheckboxOptions{ { .tooltip = label.c_str() } }.WithLabelPosition(LabelPosition::None))) {
             if (flag) {
                 flags |= bitMask;
             } else {

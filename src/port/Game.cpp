@@ -18,6 +18,10 @@
 #include "engine/objects/Lakitu.h"
 
 #include "Smoke.h"
+#include "port/telemetry/Telemetry.h"
+#include "port/vr/VRManager.h"
+#include "engine/cameras/VRCamera.h"
+#include "main.h"
 
 #include "engine/HM_Intro.h"
 
@@ -416,7 +420,11 @@ Camera* CM_AddCamera(Vec3f spawn, s16 rot, u32 mode) {
         printf("Reached the max number of cameras, %d\n", NUM_CAMERAS);
         return nullptr;
     }
-    GetWorld()->Cameras.push_back(std::make_unique<GameCamera>(FVector(spawn[0], spawn[1], spawn[2]), rot, mode));
+    if (VR_IsActive() && GetWorld()->Cameras.empty()) {
+        GetWorld()->Cameras.push_back(std::make_unique<VRCamera>(FVector(spawn[0], spawn[1], spawn[2]), rot, mode));
+    } else {
+        GetWorld()->Cameras.push_back(std::make_unique<GameCamera>(FVector(spawn[0], spawn[1], spawn[2]), rot, mode));
+    }
     return GetWorld()->Cameras.back()->Get();
 }
 
@@ -817,7 +825,7 @@ void CM_ActorCollision(Player* player, Actor* actor) {
     AActor* a = GetWorld()->ConvertActorToAActor(actor);
 
     if (a->IsMod()) {
-        a->Collision(player, a);
+        a->OnActorCollision(player, a);
     }
 }
 
@@ -911,10 +919,14 @@ void CM_ResetAudio(void) {
 }
 }
 
+#include "port/telemetry/Telemetry.h"
+#include "main.h"
+
 void push_frame() {
     GameEngine::StartAudioFrame();
     GameEngine::Instance->StartFrame();
     thread5_iteration();
+    Telemetry_Update(gPlayerOne);
     GameEngine::EndAudioFrame();
     // thread5_game_loop();
     // Graphics_ThreadUpdate();w
@@ -957,6 +969,8 @@ extern "C"
     setlocale(LC_ALL, ".UTF8");
 #endif
     // load_wasm();
+    Telemetry_Init();
+    VR_Init();
     GameEngine::Create();
     audio_init();
     sound_init();
@@ -988,6 +1002,8 @@ extern "C"
     while (WindowIsRunning()) {
         push_frame();
     }
+    VR_Terminate();
+    Telemetry_Terminate();
     CustomEngineDestroy();
     // GameEngine::Instance->ProcessFrame(push_frame);
     GameEngine::Instance->Destroy();
