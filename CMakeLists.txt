@@ -267,6 +267,7 @@ file(GLOB_RECURSE ALL_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     "src/port/telemetry/*.h"
     "src/port/vr/*.cpp"
     "src/port/vr/*.h"
+    "src/port/vr/VRTypes.h"
     "src/mods/*.h"
     "src/mods/*.c"
     "src/mods/*.cpp"

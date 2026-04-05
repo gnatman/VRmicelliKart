@@ -1,0 +1,35 @@
+name: MacOS Validation
+
+on:
+  pull_request:
+    branches: [ "*" ]
+
+jobs:
+  build:
+    runs-on: macOS-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+      - name: Install dependencies
+        run: brew install ninja cmake
+      - name: Install vcpkg
+        uses: lukka/run-vcpkg@v11.5
+        with:
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+      - name: Build
+        run: |
+          cmake -H. -Bbuild-cmake -GNinja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake --build build-cmake -j
+      - name: Create Package
+        run: |
+          mkdir spaghetti-release
+          mv build-cmake/Spaghettify spaghetti-release/
+      - name: Publish packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+            name: spaghetti-mac-universal
+            path: spaghetti-release
+            retention-days: 1

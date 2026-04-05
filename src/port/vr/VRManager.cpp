@@ -5,15 +5,16 @@
 #include <vector>
 #include <cmath>
 #include <SDL2/SDL.h>
-#define GL_GLEXT_PROTOTYPES 1
-#include <SDL2/SDL_opengl.h>
-#include <SDL2/SDL_syswm.h>
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <d3d11.h>
 #define XR_USE_PLATFORM_WIN32
-#define XR_USE_GRAPHICS_API_OPENGL
+#define XR_USE_GRAPHICS_API_D3D11
 #else
+#define GL_GLEXT_PROTOTYPES 1
+#include <SDL2/SDL_opengl.h>
+#include <SDL2/SDL_syswm.h>
 #include <GL/glx.h>
 #define XR_USE_PLATFORM_XLIB
 #define XR_USE_GRAPHICS_API_OPENGL
@@ -33,13 +34,24 @@ static XrSpace sLocalSpace = XR_NULL_HANDLE;
 static bool sVRActive = false;
 static VREyeData sEyeData[2];
 static XrFrameState sFrameState = { XR_TYPE_FRAME_STATE };
+static XrView sViews[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+
+#ifdef _WIN32
+static ID3D11Device* sD3DDevice = nullptr;
+static ID3D11DeviceContext* sD3DContext = nullptr;
+#endif
 
 struct SwapchainData {
     XrSwapchain handle;
     int32_t width;
     int32_t height;
+#ifdef _WIN32
+    std::vector<XrSwapchainImageD3D11KHR> images;
+    std::vector<ID3D11RenderTargetView*> rtvs;
+#else
     std::vector<XrSwapchainImageOpenGLKHR> images;
     std::vector<GLuint> fbos;
+#endif
 };
 static SwapchainData sSwapchains[2];
 
@@ -50,6 +62,14 @@ static void CheckXrResult(XrResult result, const char* func) {
         SPDLOG_ERROR("OpenXR Error in {}: {} ({})", func, errorStr, (int)result);
     }
 }
+
+#ifdef _WIN32
+void VR_SetD3D11Device(void* device, void* context) {
+    sD3DDevice = (ID3D11Device*)device;
+    sD3DContext = (ID3D11DeviceContext*)context;
+    SPDLOG_INFO("VR: D3D11 Device and Context set");
+}
+#endif
 
 void VR_Init() {
     if (sVRActive) return;
@@ -64,16 +84,22 @@ void VR_Init() {
     xrEnumerateInstanceExtensionProperties(NULL, extCount, &extCount, extProps.data());
 
     std::vector<const char*> extensions;
-    bool hasGL = false;
+    bool hasGraphics = false;
+#ifdef _WIN32
+    const char* targetExt = XR_KHR_D3D11_ENABLE_EXTENSION_NAME;
+#else
+    const char* targetExt = XR_KHR_OPENGL_ENABLE_EXTENSION_NAME;
+#endif
+
     for (const auto& prop : extProps) {
-        if (strcmp(prop.extensionName, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME) == 0) {
-            hasGL = true;
-            extensions.push_back(XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
+        if (strcmp(prop.extensionName, targetExt) == 0) {
+            hasGraphics = true;
+            extensions.push_back(targetExt);
         }
     }
 
-    if (!hasGL) {
-        SPDLOG_WARN("VR: OpenXR OpenGL extension not found. VR disabled.");
+    if (!hasGraphics) {
+        SPDLOG_WARN("VR: Required OpenXR graphics extension not found. VR disabled.");
         return;
     }
 
@@ -99,6 +125,15 @@ void VR_Init() {
 }
 
 static void VR_InitGraphics() {
+#ifdef _WIN32
+    if (!sD3DDevice || !sD3DContext) {
+        SPDLOG_ERROR("VR: No D3D11 device or context available for binding");
+        return;
+    }
+
+    XrGraphicsBindingD3D11KHR graphicsBinding = { XR_TYPE_GRAPHICS_BINDING_D3D11_KHR };
+    graphicsBinding.device = sD3DDevice;
+#else
     SDL_Window* window = SDL_GL_GetCurrentWindow();
     SDL_GLContext context = SDL_GL_GetCurrentContext();
 
@@ -114,15 +149,8 @@ static void VR_InitGraphics() {
         return;
     }
 
-#ifdef _WIN32
-    static XrGraphicsBindingOpenGLWin32KHR graphicsBinding = { XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR };
-    graphicsBinding.hDC = GetDC(wmInfo.info.win.window);
-    graphicsBinding.hGLRC = (HGLRC)context;
-#else
     static XrGraphicsBindingOpenGLXlibKHR graphicsBinding = { XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR };
     graphicsBinding.xDisplay = wmInfo.info.x11.display;
-    graphicsBinding.visualid = 0; 
-    graphicsBinding.glxFBConfig = 0; 
     graphicsBinding.glxDrawable = wmInfo.info.x11.window;
     graphicsBinding.glxContext = (GLXContext)context;
 #endif
@@ -142,7 +170,6 @@ static void VR_InitGraphics() {
     spaceCreateInfo.poseInReferenceSpace.orientation.w = 1.0f;
     CheckXrResult(xrCreateReferenceSpace(sSession, &spaceCreateInfo, &sLocalSpace), "xrCreateReferenceSpace");
 
-    // Create Swapchains
     uint32_t configViewCount;
     xrEnumerateViewConfigurationViews(sInstance, sSystemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &configViewCount, NULL);
     std::vector<XrViewConfigurationView> configViews(configViewCount, { XR_TYPE_VIEW_CONFIGURATION_VIEW });
@@ -151,7 +178,11 @@ static void VR_InitGraphics() {
     for (uint32_t i = 0; i < 2; i++) {
         XrSwapchainCreateInfo swapchainCreateInfo = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
         swapchainCreateInfo.arraySize = 1;
+#ifdef _WIN32
+        swapchainCreateInfo.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+#else
         swapchainCreateInfo.format = GL_RGBA8;
+#endif
         swapchainCreateInfo.width = configViews[i].recommendedImageRectWidth;
         swapchainCreateInfo.height = configViews[i].recommendedImageRectHeight;
         swapchainCreateInfo.mipCount = 1;
@@ -166,22 +197,32 @@ static void VR_InitGraphics() {
 
         uint32_t imageCount;
         xrEnumerateSwapchainImages(sSwapchains[i].handle, 0, &imageCount, NULL);
+#ifdef _WIN32
+        sSwapchains[i].images.resize(imageCount, { XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR });
+        xrEnumerateSwapchainImages(sSwapchains[i].handle, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)sSwapchains[i].images.data());
+        
+        sSwapchains[i].rtvs.resize(imageCount);
+        for (uint32_t j = 0; j < imageCount; j++) {
+            D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+            rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+            sD3DDevice->CreateRenderTargetView(sSwapchains[i].images[j].texture, &rtvDesc, &sSwapchains[i].rtvs[j]);
+        }
+#else
         sSwapchains[i].images.resize(imageCount, { XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR });
         xrEnumerateSwapchainImages(sSwapchains[i].handle, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)sSwapchains[i].images.data());
 
-        // Create FBOs for blitting
         sSwapchains[i].fbos.resize(imageCount);
         glGenFramebuffers(imageCount, sSwapchains[i].fbos.data());
         for (uint32_t j = 0; j < imageCount; j++) {
             glBindFramebuffer(GL_FRAMEBUFFER, sSwapchains[i].fbos[j]);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sSwapchains[i].images[j].image, 0);
         }
+#endif
     }
 
     SPDLOG_INFO("VR: Graphics binding, session, and swapchains created");
 }
-
-static XrView sViews[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
 
 void VR_Update() {
     if (!sVRActive) return;
@@ -300,8 +341,12 @@ void VR_BindEye(int eye) {
     waitInfo.timeout = XR_INFINITE_DURATION;
     xrWaitSwapchainImage(sSwapchains[eye].handle, &waitInfo);
 
+#ifdef _WIN32
+    sD3DContext->OMSetRenderTargets(1, &sSwapchains[eye].rtvs[imageIndex], nullptr);
+#else
     glBindFramebuffer(GL_FRAMEBUFFER, sSwapchains[eye].fbos[imageIndex]);
-    glViewport(0, 0, sSwapchains[eye].width, sSwapchains[eye].height);
+#endif
+    // Viewport will be handled by the renderer or set here
 }
 
 void VR_CommitEye(int eye) {
@@ -309,7 +354,12 @@ void VR_CommitEye(int eye) {
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(sSwapchains[eye].handle, &releaseInfo);
+#ifdef _WIN32
+    ID3D11RenderTargetView* nullRTV = nullptr;
+    sD3DContext->OMSetRenderTargets(1, &nullRTV, nullptr);
+#else
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
 }
 
 // Matrix Utility Implementations
