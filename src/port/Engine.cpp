@@ -28,6 +28,7 @@
 #include "ship/window/gui/resource/FontFactory.h"
 #include "libultraship/controller/controldeck/ControlDeck.h"
 #include "SpaghettiGui.h"
+#include "enhancements/telemetry/Telemetry.h"
 
 #include "port/interpolation/FrameInterpolation.h"
 #include <fast/Fast3dWindow.h>
@@ -348,6 +349,7 @@ void GameEngine::Create() {
     InitModsSystem();
     instance->gHMAS = new HMAS();
     instance->AudioInit();
+    Telemetry::Init();
     GameUI::SetupGuiElements();
 #if defined(__SWITCH__) || defined(__WIIU__)
     CVarRegisterInteger("gControlNav", 1); // always enable controller nav on switch/wii u
@@ -371,6 +373,8 @@ void GameEngine::StartFrame() const {
     using Ship::KbScancode;
     const int32_t dwScancode = this->context->GetWindow()->GetLastScancode();
     this->context->GetWindow()->SetLastScancode(-1);
+
+    Telemetry::Tick(0.016f);
 
     switch (dwScancode) {
         case KbScancode::LUS_KB_TAB: {
