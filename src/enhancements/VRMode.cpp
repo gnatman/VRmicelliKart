@@ -1,5 +1,6 @@
 #include "VRMode.h"
 #include <libultraship/libultraship.h>
+#include <ship/window/Window.h>
 #include <cmath>
 
 #ifndef M_PI
@@ -44,7 +45,7 @@ void VRMode_ApplyOverride(Camera* camera) {
 
     // Head tracking rotation
     float pitch = pose.rot[0];
-    float yaw = pose.rot[1];
+    float yaw = pose.rot[1] + M_PI;
     float roll = pose.rot[2];
 
     // Update rotation s16 values for internal consistency
