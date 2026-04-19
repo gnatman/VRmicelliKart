@@ -20,6 +20,7 @@
 #include "enhancements/freecam/freecam_engine.h"
 #include "enhancements/freecam/freecam.h"
 #include "port/interpolation/FrameInterpolation.h"
+#include "enhancements/VRMode.h"
 
 #include "engine/GameAPI.h"
 #include "port/Game.h"
@@ -1128,6 +1129,29 @@ void func_8001EE98(Player* player, Camera* camera, s8 index) {
                 break;
         }
     }
+    VRMode_ApplyOverride(camera);
+    
+    // Fix VR clipping: explicitly resolve bounds against VR offset
+    if (CVarGetInteger("gVRMode", 0)) {
+        check_bounding_collision(&camera->collision, 3.0f, camera->pos[0], camera->pos[1], camera->pos[2]);
+        if (camera->collision.surfaceDistance[2] < 0.0f) {
+            camera->pos[0] += -camera->collision.orientationVector[0] * camera->collision.surfaceDistance[2];
+            camera->pos[1] += -camera->collision.orientationVector[1] * camera->collision.surfaceDistance[2] * 0.5f;
+            camera->pos[2] += -camera->collision.orientationVector[2] * camera->collision.surfaceDistance[2];
+        }
+        if (camera->collision.surfaceDistance[0] < 0.0f) {
+            camera->pos[0] += -camera->collision.unk48[0] * camera->collision.surfaceDistance[0] * 1.5f;
+            camera->pos[1] += -camera->collision.unk48[1] * camera->collision.surfaceDistance[0];
+            camera->pos[2] += -camera->collision.unk48[2] * camera->collision.surfaceDistance[0] * 1.5f;
+        }
+        if (camera->collision.surfaceDistance[1] < 0.0f) {
+            camera->pos[0] += -camera->collision.unk54[0] * camera->collision.surfaceDistance[1] * 1.5f;
+            camera->pos[1] += -camera->collision.unk54[1] * camera->collision.surfaceDistance[1];
+            camera->pos[2] += -camera->collision.unk54[2] * camera->collision.surfaceDistance[1] * 1.5f;
+        }
+    }
+
+    VRMode_UpdatePlayerHead(player, CVarGetInteger("gVRCockpitView", 0) && CVarGetInteger("gVRMode", 0));
 }
 
 void func_8001F394(Player* player) {
