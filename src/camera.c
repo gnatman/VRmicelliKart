@@ -1133,21 +1133,27 @@ void func_8001EE98(Player* player, Camera* camera, s8 index) {
     
     // Fix VR clipping: explicitly resolve bounds against VR offset
     if (CVarGetInteger("gVRMode", 0)) {
-        check_bounding_collision(&camera->collision, 3.0f, camera->pos[0], camera->pos[1], camera->pos[2]);
+        check_bounding_collision(&camera->collision, 10.0f, camera->pos[0], camera->pos[1], camera->pos[2]);
         if (camera->collision.surfaceDistance[2] < 0.0f) {
-            camera->pos[0] += -camera->collision.orientationVector[0] * camera->collision.surfaceDistance[2];
-            camera->pos[1] += -camera->collision.orientationVector[1] * camera->collision.surfaceDistance[2] * 0.5f;
-            camera->pos[2] += -camera->collision.orientationVector[2] * camera->collision.surfaceDistance[2];
+            float dx = -camera->collision.orientationVector[0] * camera->collision.surfaceDistance[2];
+            float dy = -camera->collision.orientationVector[1] * camera->collision.surfaceDistance[2] * 0.5f;
+            float dz = -camera->collision.orientationVector[2] * camera->collision.surfaceDistance[2];
+            camera->pos[0] += dx; camera->pos[1] += dy; camera->pos[2] += dz;
+            camera->lookAt[0] += dx; camera->lookAt[1] += dy; camera->lookAt[2] += dz;
         }
         if (camera->collision.surfaceDistance[0] < 0.0f) {
-            camera->pos[0] += -camera->collision.unk48[0] * camera->collision.surfaceDistance[0] * 1.5f;
-            camera->pos[1] += -camera->collision.unk48[1] * camera->collision.surfaceDistance[0];
-            camera->pos[2] += -camera->collision.unk48[2] * camera->collision.surfaceDistance[0] * 1.5f;
+            float dx = -camera->collision.unk48[0] * camera->collision.surfaceDistance[0] * 1.5f;
+            float dy = -camera->collision.unk48[1] * camera->collision.surfaceDistance[0];
+            float dz = -camera->collision.unk48[2] * camera->collision.surfaceDistance[0] * 1.5f;
+            camera->pos[0] += dx; camera->pos[1] += dy; camera->pos[2] += dz;
+            camera->lookAt[0] += dx; camera->lookAt[1] += dy; camera->lookAt[2] += dz;
         }
         if (camera->collision.surfaceDistance[1] < 0.0f) {
-            camera->pos[0] += -camera->collision.unk54[0] * camera->collision.surfaceDistance[1] * 1.5f;
-            camera->pos[1] += -camera->collision.unk54[1] * camera->collision.surfaceDistance[1];
-            camera->pos[2] += -camera->collision.unk54[2] * camera->collision.surfaceDistance[1] * 1.5f;
+            float dx = -camera->collision.unk54[0] * camera->collision.surfaceDistance[1] * 1.5f;
+            float dy = -camera->collision.unk54[1] * camera->collision.surfaceDistance[1];
+            float dz = -camera->collision.unk54[2] * camera->collision.surfaceDistance[1] * 1.5f;
+            camera->pos[0] += dx; camera->pos[1] += dy; camera->pos[2] += dz;
+            camera->lookAt[0] += dx; camera->lookAt[1] += dy; camera->lookAt[2] += dz;
         }
     }
 
