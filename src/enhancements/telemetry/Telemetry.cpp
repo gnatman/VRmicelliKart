@@ -122,9 +122,10 @@ void Telemetry::Tick(float dt) {
     Instance->mCurrentPacket.mLocalVelocity[2] = velZ;
 
     // Local Acceleration (m/s^2)
-    Instance->mCurrentPacket.mLocalAcceleration[0] = (velX - Instance->mSavedVelocity[0]) / dt;
-    Instance->mCurrentPacket.mLocalAcceleration[1] = (velY - Instance->mSavedVelocity[1]) / dt;
-    Instance->mCurrentPacket.mLocalAcceleration[2] = (velZ - Instance->mSavedVelocity[2]) / dt;
+    float accelScale = CVarGetFloat("gTelemetryAccelScale", 1.0f);
+    Instance->mCurrentPacket.mLocalAcceleration[0] = ((velX - Instance->mSavedVelocity[0]) / dt) * accelScale;
+    Instance->mCurrentPacket.mLocalAcceleration[1] = ((velY - Instance->mSavedVelocity[1]) / dt) * accelScale;
+    Instance->mCurrentPacket.mLocalAcceleration[2] = ((velZ - Instance->mSavedVelocity[2]) / dt) * accelScale;
     
     Instance->mSavedVelocity[0] = velX;
     Instance->mSavedVelocity[1] = velY;
@@ -137,7 +138,8 @@ void Telemetry::Tick(float dt) {
     Instance->mCurrentPacket.mOrientation[2] = 0; // Roll
 
     // Speed (m/s)
-    Instance->mCurrentPacket.mSpeed = p->speed * 60.0f * 0.01f;
+    float speedScale = CVarGetFloat("gTelemetrySpeedScale", 1.0f);
+    Instance->mCurrentPacket.mSpeed = p->speed * 60.0f * 0.01f * speedScale;
 
     // Task 3: Fake RPM and Gear Logic
     // Synthesize data since MK64 lacks these concepts.
@@ -160,6 +162,11 @@ void Telemetry::Tick(float dt) {
     // mGearNumGears: bits 0-3 = gear, bits 4-7 = num gears
     // PC2: 0=N, 1=1, 2=2... (simplified)
     Instance->mCurrentPacket.mGearNumGears = (uint8_t)(gear & 0x0F) | (5 << 4);
+}
+
+sTelemetryData Telemetry::GetPacket() {
+    std::lock_guard<std::mutex> lock(mPacketMutex);
+    return mCurrentPacket;
 }
 
 void Telemetry::SendPacket(const sTelemetryData& packet) {

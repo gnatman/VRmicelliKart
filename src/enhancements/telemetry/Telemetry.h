@@ -15,6 +15,7 @@ public:
     static void Tick(float dt);
 
     void SendPacket(const sTelemetryData& packet);
+    sTelemetryData GetPacket();
 
 private:
     Telemetry();

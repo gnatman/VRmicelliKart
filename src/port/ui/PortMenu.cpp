@@ -9,6 +9,7 @@
 #include <variant>
 #include <tuple>
 #include "ResolutionEditor.h"
+#include "TelemetryMenu.h"
 
 #include "engine/tracks/Track.h"
 #include "engine/tracks/KalimariDesert.h"
@@ -622,6 +623,8 @@ void PortMenu::InitElement() {
     AddSettings();
     AddEnhancements();
     AddDevTools();
+    AddTelemetrySettings();
+    AddVRSettings();
 
     if (CVarGetInteger("gSettings.Menu.SidebarSearch", 0)) {
         InsertSidebarSearch();
@@ -694,5 +697,69 @@ void PortMenu::Draw() {
 
 void PortMenu::DrawElement() {
     Ship::Menu::DrawElement();
+}
+
+void PortMenu::AddTelemetrySettings() {
+    AddMenuEntry("Telemetry", "gSettings.Menu.TelemetrySidebarSection");
+    AddSidebarEntry("Telemetry", "Settings", 1);
+    WidgetPath path = { "Telemetry", "Settings", SECTION_COLUMN_1 };
+
+    AddWidget(path, "Telemetry Enabled", WIDGET_CVAR_CHECKBOX)
+        .CVar("gTelemetry.Enabled")
+        .Options(CheckboxOptions().Tooltip("Enables UDP telemetry output."));
+}
+
+void PortMenu::AddVRSettings() {
+    AddMenuEntry("VR", "gSettings.Menu.VRSidebarSection");
+    AddSidebarEntry("VR", "Settings", 1);
+    WidgetPath path = { "VR", "Settings", SECTION_COLUMN_1 };
+
+    AddWidget(path, "VR Enabled", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRMode")
+        .Options(CheckboxOptions().Tooltip("Enables VR camera overrides."));
+
+    AddWidget(path, "Cockpit View", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRCockpitView")
+        .Options(CheckboxOptions().Tooltip("Anchors the camera inside the kart."));
+
+    AddWidget(path, "VR World Scale: %.1f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRWorldScale")
+        .Options(FloatSliderOptions()
+                     .Min(1.0f)
+                     .Max(1000.0f)
+                     .DefaultValue(100.0f)
+                     .Tooltip("Adjusts the scale of the world relative to the HMD."));
+
+    AddWidget(path, "VR Yaw Offset: %.1f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRYawOffset")
+        .Options(FloatSliderOptions()
+                     .Min(0.0f)
+                     .Max(360.0f)
+                     .DefaultValue(0.0f)
+                     .Tooltip("Adjust the starting horizontal rotation of the VR view."));
+
+    AddWidget(path, "VR Camera Height: %.1f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVROffsetY")
+        .Options(FloatSliderOptions()
+                     .Min(-50.0f)
+                     .Max(50.0f)
+                     .DefaultValue(0.0f)
+                     .Tooltip("Vertical offset for the VR camera."));
+
+    AddWidget(path, "VR Forward Offset: %.1f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVROffsetZ")
+        .Options(FloatSliderOptions()
+                     .Min(-50.0f)
+                     .Max(50.0f)
+                     .DefaultValue(0.0f)
+                     .Tooltip("Forward/Backward offset for the VR camera."));
+
+    AddWidget(path, "Mock VR Mode", WIDGET_CVAR_CHECKBOX)
+        .CVar("gMockVREnabled")
+        .Options(CheckboxOptions().Tooltip("Simulates VR head tracking for testing."));
+
+    AddWidget(path, "VR Debug Camera", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRDebugCamera")
+        .Options(CheckboxOptions().Tooltip("Enables diagnostic logging for the VR camera."));
 }
 } // namespace GameUI

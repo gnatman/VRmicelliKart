@@ -1593,6 +1593,13 @@ void render_player(Player* player, s8 playerId, s8 screenId) {
     s32 var_v1;
     OSMesg* sp34;
 
+    // VR Cockpit Skip: Don't render the local player model in cockpit view to prevent clipping
+    if (CVarGetInteger("gVRMode", 0) && CVarGetInteger("gVRCockpitView", 0)) {
+        if (player == gPlayerOne) {
+            return;
+        }
+    }
+
     update_wheel_palette(player, playerId, screenId, D_801651D0[screenId][playerId]);
     if (!(player->unk_002 & (UNK_002_UNKNOWN_0x4 << (screenId * 4)))) {
         var_v1 = 0;

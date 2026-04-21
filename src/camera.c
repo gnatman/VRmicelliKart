@@ -786,6 +786,11 @@ void func_8001E0C4(Camera* camera, Player* player, s8 arg2) {
     UNUSED s32 pad3[8];
     s32 test = 3;
 
+    if (CVarGetInteger("gVRMode", 0)) {
+        VRMode_ApplyOverride(camera);
+        return;
+    }
+
     if (player->unk_078 == 0) {
         var_a2 = 0x0064;
     } else if (player->unk_078 < 0) {
@@ -850,6 +855,11 @@ void func_8001E45C(Camera* camera, Player* player, s8 arg2) {
     UNUSED s16 pad6;
     s16 temp;
 
+    if (CVarGetInteger("gVRMode", 0)) {
+        VRMode_ApplyOverride(camera);
+        return;
+    }
+
     if ((player->effects & DRIFTING_EFFECT) == DRIFTING_EFFECT) {
         var_a3 = 100;
         if (player->unk_078 == 0) {
@@ -904,16 +914,9 @@ void func_8001E45C(Camera* camera, Player* player, s8 arg2) {
     }
     temp = 3;
     camera->someBitFlags &= 0xFFFB;
-    check_bounding_collision(&camera->collision, temp, sp84, sp80, sp7C);
+    check_bounding_collision(&camera->collision, temp, camera->pos[0], camera->pos[1], camera->pos[2]);
 
-    camera->pos[0] = sp84;
-    camera->pos[1] = sp80;
-    camera->pos[2] = sp7C;
-
-    camera->lookAt[0] = sp64[0];
-    camera->lookAt[1] = sp64[1];
-    camera->lookAt[2] = sp64[2];
-
+    // Update rotation
     temp_f12 = camera->lookAt[0] - camera->pos[0];
     sp90 = camera->lookAt[1] - camera->pos[1];
     temp_f14 = camera->lookAt[2] - camera->pos[2];
@@ -935,6 +938,11 @@ void func_8001E8E8(Camera* camera, Player* player, s8 arg2) {
     UNUSED Vec3f pad3;
     Vec3f sp5C;
     UNUSED f32 pad4[10];
+
+    if (CVarGetInteger("gVRMode", 0)) {
+        VRMode_ApplyOverride(camera);
+        return;
+    }
 
     camera->unk_B0 = 0;
     camera->unk_2C = player->rotation[1];
@@ -972,6 +980,11 @@ void func_8001EA0C(Camera* camera, Player* player, s8 arg2) {
     UNUSED s16 pad6;
     s16 temp;
 
+    if (CVarGetInteger("gVRMode", 0)) {
+        VRMode_ApplyOverride(camera);
+        return;
+    }
+
     if ((player->effects & DRIFTING_EFFECT) == DRIFTING_EFFECT) {
         var_a3 = 100;
         if (player->unk_078 == 0) {
@@ -1027,16 +1040,9 @@ void func_8001EA0C(Camera* camera, Player* player, s8 arg2) {
     }
     temp = 3;
     camera->someBitFlags &= 0xFFFB;
-    check_bounding_collision(&camera->collision, temp, sp84, sp80, sp7C);
+    check_bounding_collision(&camera->collision, temp, camera->pos[0], camera->pos[1], camera->pos[2]);
 
-    camera->pos[0] = sp84;
-    camera->pos[1] = sp80;
-    camera->pos[2] = sp7C;
-
-    camera->lookAt[0] = sp64[0];
-    camera->lookAt[1] = sp64[1];
-    camera->lookAt[2] = sp64[2];
-
+    // Update rotation
     temp_f12 = camera->lookAt[0] - camera->pos[0];
     sp90 = camera->lookAt[1] - camera->pos[1];
     temp_f14 = camera->lookAt[2] - camera->pos[2];
@@ -1129,35 +1135,6 @@ void func_8001EE98(Player* player, Camera* camera, s8 index) {
                 break;
         }
     }
-    VRMode_ApplyOverride(camera);
-    
-    // Fix VR clipping: explicitly resolve bounds against VR offset
-    if (CVarGetInteger("gVRMode", 0)) {
-        check_bounding_collision(&camera->collision, 10.0f, camera->pos[0], camera->pos[1], camera->pos[2]);
-        if (camera->collision.surfaceDistance[2] < 0.0f) {
-            float dx = -camera->collision.orientationVector[0] * camera->collision.surfaceDistance[2];
-            float dy = -camera->collision.orientationVector[1] * camera->collision.surfaceDistance[2] * 0.5f;
-            float dz = -camera->collision.orientationVector[2] * camera->collision.surfaceDistance[2];
-            camera->pos[0] += dx; camera->pos[1] += dy; camera->pos[2] += dz;
-            camera->lookAt[0] += dx; camera->lookAt[1] += dy; camera->lookAt[2] += dz;
-        }
-        if (camera->collision.surfaceDistance[0] < 0.0f) {
-            float dx = -camera->collision.unk48[0] * camera->collision.surfaceDistance[0] * 1.5f;
-            float dy = -camera->collision.unk48[1] * camera->collision.surfaceDistance[0];
-            float dz = -camera->collision.unk48[2] * camera->collision.surfaceDistance[0] * 1.5f;
-            camera->pos[0] += dx; camera->pos[1] += dy; camera->pos[2] += dz;
-            camera->lookAt[0] += dx; camera->lookAt[1] += dy; camera->lookAt[2] += dz;
-        }
-        if (camera->collision.surfaceDistance[1] < 0.0f) {
-            float dx = -camera->collision.unk54[0] * camera->collision.surfaceDistance[1] * 1.5f;
-            float dy = -camera->collision.unk54[1] * camera->collision.surfaceDistance[1];
-            float dz = -camera->collision.unk54[2] * camera->collision.surfaceDistance[1] * 1.5f;
-            camera->pos[0] += dx; camera->pos[1] += dy; camera->pos[2] += dz;
-            camera->lookAt[0] += dx; camera->lookAt[1] += dy; camera->lookAt[2] += dz;
-        }
-    }
-
-    VRMode_UpdatePlayerHead(player, CVarGetInteger("gVRCockpitView", 0) && CVarGetInteger("gVRMode", 0));
 }
 
 void func_8001F394(Player* player) {

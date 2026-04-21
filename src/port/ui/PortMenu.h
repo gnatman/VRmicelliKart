@@ -74,8 +74,10 @@ class PortMenu : public Ship::Menu {
     void AddEnhancements();
       void AddRulesets();
     void AddDevTools();
-      void AddSceneVisibility();
+    void AddSceneVisibility();
+    void AddTelemetrySettings();
+    void AddVRSettings();
 };
-} // namespace BenGui
+} // namespace GameUI
 
 #endif // PORTMENU_H

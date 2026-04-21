@@ -454,6 +454,18 @@ void DrawMenuBarIcon() {
 void DrawGameMenu() {
 }
 
+void DrawVRMenu() {
+    if (UIWidgets::BeginMenu("VR")) {
+        UIWidgets::CVarCheckbox("VR Enabled", "gVRMode");
+        UIWidgets::CVarCheckbox("Cockpit View", "gVRCockpitView");
+        UIWidgets::CVarSliderFloat("VR World Scale", "gVRWorldScale", UIWidgets::FloatSliderOptions().Min(0.01f).Max(1000.0f).DefaultValue(100.0f));
+        UIWidgets::CVarSliderFloat("VR Camera Height", "gVROffsetY", UIWidgets::FloatSliderOptions().Min(-50.0f).Max(50.0f).DefaultValue(0.0f));
+        UIWidgets::CVarSliderFloat("VR Forward Offset", "gVROffsetZ", UIWidgets::FloatSliderOptions().Min(-50.0f).Max(50.0f).DefaultValue(0.0f));
+        UIWidgets::CVarCheckbox("Mock VR Mode", "gMockVREnabled");
+        ImGui::EndMenu();
+    }
+}
+
 void DrawEnhancementsMenu() {
     if (UIWidgets::BeginMenu("Enhancements")) {
 
@@ -480,6 +492,10 @@ void GameMenuBar::DrawElement() {
         DrawMenuBarIcon();
 
         DrawGameMenu();
+
+        ImGui::SetCursorPosY(0.0f);
+
+        DrawVRMenu();
 
         ImGui::SetCursorPosY(0.0f);
 

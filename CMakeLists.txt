@@ -180,7 +180,7 @@ endif()
 
 # Set game compilation version
 set(VERSION us)
-set(USE_NETWORKING OFF)
+set(USE_NETWORKING ON)
 set(SKIP_XCODE_VERSION_CHECK ON)
 
 # TODO: Sorry i broke this
@@ -229,6 +229,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/particles
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/freecam
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/telemetry
 )
 
 # Collect source files to build the executable
@@ -282,10 +283,13 @@ file(GLOB_RECURSE ALL_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     "src/engine/particles/*.cpp"
     "src/engine/particles/*.h"
     "src/enhancements/*.c"
+    "src/enhancements/*.cpp"
     "src/enhancements/*.h"
     "src/enhancements/freecam/*.c"
     "src/enhancements/freecam/*.cpp"
     "src/enhancements/freecam/*.h"
+    "src/enhancements/telemetry/*.cpp"
+    "src/enhancements/telemetry/*.h"
     "src/engine/*.cpp"
     "src/engine/*.h"
     "Resource.rc"
@@ -399,16 +403,22 @@ endif()
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/include/libultraship
+  ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include/libultraship
   ${SDL2_INCLUDE_DIRS}
   ${GLEW_INCLUDE_DIRS}
   ${dr_libs_SOURCE_DIR}
 )
 
-add_subdirectory(libultraship ${CMAKE_CURRENT_SOURCE_DIR}/libultraship)
+add_subdirectory(../libultraship libultraship)
 add_dependencies(${PROJECT_NAME} libultraship)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
+
+if (WIN32)
+  find_package(OpenXR CONFIG REQUIRED)
+  target_link_libraries(${PROJECT_NAME} PRIVATE OpenXR::headers OpenXR::openxr_loader)
+  target_link_libraries(${PROJECT_NAME} PRIVATE dinput8 dxguid setupapi)
+endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
   target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -497,7 +507,7 @@ endif()
 
 if(USE_NETWORKING)
   if(MSVC)
-    vcpkg_install_packages(sdl2-net)
+    vcpkg_install_packages()
   endif()
   include_directories(${SDL2_NET_INCLUDE_DIRS})
   target_compile_definitions(${PROJECT_NAME} PRIVATE USE_NETWORKING)

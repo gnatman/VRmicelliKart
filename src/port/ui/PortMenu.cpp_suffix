@@ -1,0 +1,32 @@
+void PortMenu::UpdateElement() {
+    Ship::Menu::UpdateElement();
+}
+
+void PortMenu::Draw() {
+    Ship::Menu::Draw();
+}
+
+void PortMenu::DrawElement() {
+    Ship::Menu::DrawElement();
+}
+
+void PortMenu::AddTelemetrySettings() {
+    AddMenuEntry("Telemetry", "gSettings.Menu.TelemetrySidebarSection");
+    AddSidebarEntry("Telemetry", "Settings", 1);
+    WidgetPath path = { "Telemetry", "Settings", SECTION_COLUMN_1 };
+
+    AddWidget(path, "Telemetry Enabled", WIDGET_CVAR_CHECKBOX)
+        .CVar("gTelemetry.Enabled")
+        .Options(CheckboxOptions().Tooltip("Enables UDP telemetry output."));
+}
+
+void PortMenu::AddVRSettings() {
+    AddMenuEntry("VR", "gSettings.Menu.VRSidebarSection");
+    AddSidebarEntry("VR", "Settings", 1);
+    WidgetPath path = { "VR", "Settings", SECTION_COLUMN_1 };
+
+    AddWidget(path, "VR Enabled", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRMode")
+        .Options(CheckboxOptions().Tooltip("Enables VR camera overrides."));
+}
+} // namespace GameUI

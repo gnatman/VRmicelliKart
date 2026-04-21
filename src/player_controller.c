@@ -264,6 +264,10 @@ u16 check_player_camera_collision_rubberbanding(Player* player, Camera* camera, 
     s16 var_v0;
     u16 ret;
 
+    if (CVarGetInteger("gVRMode", 0) && CVarGetInteger("gVRCockpitView", 0) && player == gPlayerOne) {
+        return true;
+    }
+
     if (CVarGetInteger("gDisableRubberbanding", 0) != 0) {
         return true;
     }
@@ -338,6 +342,13 @@ void func_80028864(Player* player, Camera* camera, s8 playerId, s8 screenId) {
             (gModeSelection == BATTLE) || ((player->lakituProps & HELD_BY_LAKITU) != 0) || (player->lakituProps & LAKITU_SCENE) ||
             //! @todo make a proper match
             ((*(D_801633F8 + (playerId))) == ((s16) 1U))) {
+            
+            // VR Cockpit Force: Ensure we never enter the auto-drive/clipping state in VR
+            if (CVarGetInteger("gVRMode", 0) && CVarGetInteger("gVRCockpitView", 0) && player == gPlayerOne) {
+                func_8002D268(player, camera, screenId, playerId);
+                return;
+            }
+
             player->effects &= ~0x1000;
             if (((player->effects & 0x80) == 0x80) || ((player->effects & 0x40) == 0x40) ||
                 ((player->effects & 0x400) == 0x400) || ((player->effects & 0x4000) == 0x4000) ||
