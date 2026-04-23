@@ -42,9 +42,11 @@ void VRMode_ApplyOverride(Camera* camera) {
     mtxf_identity(parentMtx);
     
     // Copy orientation from kart (Mat3 to Mat4)
+    // Transpose because player->orientationMatrix is World-to-Local (Rendering matrix)
+    // and we need Local-to-World for the Camera Parent.
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
-            parentMtx[i][j] = player->orientationMatrix[i][j];
+            parentMtx[i][j] = player->orientationMatrix[j][i];
         }
     }
     
@@ -58,6 +60,7 @@ void VRMode_ApplyOverride(Camera* camera) {
         float chaseHeight = 25.0f;
         
         // Translate the parent frame backwards and up relative to the kart
+        // Forward is row 2
         parentMtx[3][0] -= parentMtx[2][0] * chaseDist;
         parentMtx[3][1] += chaseHeight;
         parentMtx[3][2] -= parentMtx[2][2] * chaseDist;
@@ -81,8 +84,9 @@ void VRMode_ApplyOverride(Camera* camera) {
     mtxf_identity(rotMtx);
     
     // Convert radians to N64 s16 angles
-    s16 pitch = (s16)(-pose.rot[0] * 32768.0f / M_PI); // Invert pitch if needed
-    s16 yaw   = (s16)(-pose.rot[1] * 32768.0f / M_PI); // Negate yaw for CCW -> CW
+    // With Transposed Parent, Yaw needs to be positive to match world-space rotation
+    s16 pitch = (s16)(-pose.rot[0] * 32768.0f / M_PI);
+    s16 yaw   = (s16)(pose.rot[1] * 32768.0f / M_PI);
     s16 roll  = (s16)(pose.rot[2] * 32768.0f / M_PI);
     
     // Combine HMD rotations

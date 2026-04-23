@@ -64,15 +64,6 @@ _Note: If you're using Visual Studio Code, the [cpack plugin](https://marketplac
 _Experimental: You can also use another build system entirely rather than MSVC like [Ninja](https://ninja-build.org/) for possibly better performance._
 
 
-### Generating the distributable
-After compiling the project you can generate the distributable by running:
-```powershell
-# Go to build folder
-cd "build/x64"
-# Generate
-& 'C:\Program Files\CMake\bin\cpack.exe' -G ZIP
-```
-
 ### Additional CMake Targets
 #### Clean
 ```powershell
