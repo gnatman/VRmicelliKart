@@ -718,6 +718,14 @@ void PortMenu::AddVRSettings() {
         .CVar("gVRMode")
         .Options(CheckboxOptions().Tooltip("Enables VR camera overrides."));
 
+    AddWidget(path, "HUD Distance: %.1f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRHudDistance")
+        .Options(FloatSliderOptions()
+                     .Min(0.5f)
+                     .Max(10.0f)
+                     .DefaultValue(2.0f)
+                     .Tooltip("Sets the distance of the HUD in VR. Higher values move it further away."));
+
     AddWidget(path, "Cockpit View", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRCockpitView")
         .Options(CheckboxOptions().Tooltip("Anchors the camera inside the kart."));
