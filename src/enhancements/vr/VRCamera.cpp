@@ -8,6 +8,7 @@ extern "C" {
 #include "main.h"
 #include "camera.h"
 #include "racing/math_util.h"
+#include "racing/collision.h"
 #include "enhancements/vr/VRMode.h"
 #include "enhancements/vr/VRCamera.h"
 }
@@ -91,6 +92,10 @@ void VR_OverrideCamera(Camera* camera, Player* player, int eye) {
     camera->pos[1] = finalMtx[3][1];
     camera->pos[2] = finalMtx[3][2];
     
+    // Update camera collision/segment data so the engine knows where we are.
+    // This fixes the "disappearing road" issue caused by track segment culling.
+    check_bounding_collision(&camera->collision, 10.0f, camera->pos[0], camera->pos[1], camera->pos[2]);
+
     // Extract Forward Vector (Row 2) for LookAt
     float lookDistance = 50.0f;
     camera->lookAt[0] = camera->pos[0] + finalMtx[2][0] * lookDistance;
