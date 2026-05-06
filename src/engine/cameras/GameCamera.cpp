@@ -9,6 +9,8 @@ extern "C" {
 #include "main.h"
 #include "code_800029B0.h"
 #include "camera.h"
+#include "enhancements/vr/VRMode.h"
+#include "enhancements/vr/VRCamera.h"
 }
 
 size_t GameCamera::_count = 0;
@@ -50,6 +52,12 @@ void GameCamera::Tick() {
     if (!bActive) { return; }
     if (nullptr == _camera) {
         bActive = false;
+        return;
+    }
+
+    // VR Mode: Override the camera for player 0 with first-person view
+    if (VR_IsEnabled() && _camera->playerId == 0) {
+        VR_OverrideCamera(_camera, &gPlayers[_camera->playerId], 0);
         return;
     }
 

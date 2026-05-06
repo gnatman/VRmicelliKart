@@ -54,6 +54,7 @@ float gInterpolationStep = 0.0f;
 // #include <PngFactory.h>
 #include "audio/internal.h"
 #include "audio/GameAudio.h"
+#include "enhancements/vr/VRMode.h"
 }
 
 Fast::Interpreter* GetInterpreter() {
@@ -188,7 +189,6 @@ GameEngine::GameEngine() {
     SPDLOG_INFO(CVarGetInteger("gEnableDebugMode", 0) == 0 ? "Debug Mode deactivated" : "Debug Mode activated");
 
     wnd->SetRendererUCode(ucode_f3dex);
-    this->context->InitGfxDebugger();
 
     auto loader = context->GetResourceManager()->GetResourceLoader();
     loader->RegisterResourceFactory(std::make_shared<SM64::AudioBankFactoryV0>(), RESOURCE_FORMAT_BINARY, "AudioBank",
@@ -349,12 +349,14 @@ void GameEngine::Create() {
     instance->gHMAS = new HMAS();
     instance->AudioInit();
     GameUI::SetupGuiElements();
+    VR_Init();
 #if defined(__SWITCH__) || defined(__WIIU__)
     CVarRegisterInteger("gControlNav", 1); // always enable controller nav on switch/wii u
 #endif
 }
 
 void GameEngine::Destroy() {
+    VR_Shutdown();
     AudioExit();
 #ifdef __SWITCH__
     Ship::Switch::Exit();
@@ -371,6 +373,9 @@ void GameEngine::StartFrame() const {
     using Ship::KbScancode;
     const int32_t dwScancode = this->context->GetWindow()->GetLastScancode();
     this->context->GetWindow()->SetLastScancode(-1);
+
+    // Update VR head tracking data at the start of each frame
+    VR_PreFrame();
 
     switch (dwScancode) {
         case KbScancode::LUS_KB_TAB: {

@@ -16,6 +16,7 @@
 #include <imgui_internal.h>
 #include <libultraship/libultraship.h>
 #include <fast/Fast3dWindow.h>
+#include <fast/Fast3dGui.h>
 #include "port/Engine.h"
 #include "PortMenu.h"
 
@@ -61,7 +62,6 @@ void SetupGuiElements() {
     mInputEditorWindow = gui->GetGuiWindow("Input Editor");
     if (mInputEditorWindow == nullptr) {
         SPDLOG_ERROR("Could not find input editor window");
-        return;
     }
 
     mGfxDebuggerWindow = gui->GetGuiWindow("GfxDebuggerWindow");
@@ -433,7 +433,8 @@ void DrawMenuBarIcon() {
         gameIconLoaded = false;
     }
 
-    if (Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName("Game_Icon")) {
+    auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui());
+    if (gui && gui->GetTextureByName("Game_Icon")) {
 #ifdef __SWITCH__
         ImVec2 iconSize = ImVec2(20.0f, 20.0f);
         float posScale = 1.0f;
@@ -445,7 +446,7 @@ void DrawMenuBarIcon() {
         float posScale = 1.5f;
 #endif
         ImGui::SetCursorPos(ImVec2(5, 2.5f) * posScale);
-        ImGui::Image(Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName("Game_Icon"), iconSize);
+        ImGui::Image(gui->GetTextureByName("Game_Icon"), iconSize);
         ImGui::SameLine();
         ImGui::SetCursorPos(ImVec2(25, 0) * posScale);
     }

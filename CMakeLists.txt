@@ -251,6 +251,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/particles
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/freecam
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/vr
 )
 
 # Collect source files to build the executable
@@ -308,6 +309,9 @@ file(GLOB_RECURSE ALL_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     "src/enhancements/freecam/*.c"
     "src/enhancements/freecam/*.cpp"
     "src/enhancements/freecam/*.h"
+    "src/enhancements/vr/*.c"
+    "src/enhancements/vr/*.cpp"
+    "src/enhancements/vr/*.h"
     "src/engine/*.cpp"
     "src/engine/*.h"
     "Resource.rc"

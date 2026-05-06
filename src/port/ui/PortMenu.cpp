@@ -25,6 +25,9 @@ extern s32 gMenuSelection;
 #include "defines.h"
 }
 
+// VR Mode functions (header has its own extern "C" guards)
+#include "enhancements/vr/VRMode.h"
+
 namespace GameUI {
 extern std::shared_ptr<PortMenu> mPortMenu;
 
@@ -213,7 +216,7 @@ void PortMenu::AddSettings() {
     // Graphics Settings
     static int32_t maxFps;
     const char* tooltip = "";
-    if (Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() == Ship::WindowBackend::FAST3D_DXGI_DX11) {
+    if (Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() == Fast::WindowBackend::FAST3D_DXGI_DX11) {
         maxFps = MAX_FPS;
         tooltip = "Uses Matrix Interpolation to create extra frames, resulting in smoother graphics. This is "
                   "purely visual and does not impact game logic, execution of glitches etc.\n\nA higher target "
@@ -401,6 +404,48 @@ void PortMenu::AddEnhancements() {
     AddWidget(path, "Enable Look Behind Camera", WIDGET_CVAR_CHECKBOX)
         .CVar("gLookBehind")
         .Options(CheckboxOptions().Tooltip("Press C-Left to look behind you"));
+
+    // VR Mode
+    path = { "Enhancements", "VR Mode", SECTION_COLUMN_1 };
+    AddSidebarEntry("Enhancements", "VR Mode", 3);
+    AddWidget(path, "Enable VR Mode", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVR.Enabled")
+        .Options(CheckboxOptions().Tooltip(
+            "Enables first-person VR camera mode. Requires single player RACING state.\n"
+            "Hold right mouse button and drag to look around."));
+    AddWidget(path, "Camera Mode", WIDGET_CVAR_COMBOBOX)
+        .CVar("gVR.CameraMode")
+        .PreFunc([](WidgetInfo& info) { info.isHidden = !CVarGetInteger("gVR.Enabled", 0); })
+        .Options(ComboboxOptions()
+                     .Tooltip("Select VR camera placement on the kart.")
+                     .ComboMap({
+                         { 0, "Cockpit" },
+                         { 1, "Chase" },
+                         { 2, "Hood" },
+                     })
+                     .DefaultIndex(0));
+    AddWidget(path, "Field of View: %.0f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.FOV")
+        .PreFunc([](WidgetInfo& info) { info.isHidden = !CVarGetInteger("gVR.Enabled", 0); })
+        .Options(FloatSliderOptions()
+                     .Tooltip("Field of view for VR camera (Phase 3 desktop mode only).")
+                     .Min(60.0f)
+                     .Max(120.0f)
+                     .DefaultValue(90.0f)
+                     .Step(5.0f));
+    AddWidget(path, "World Scale: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.WorldScale")
+        .PreFunc([](WidgetInfo& info) { info.isHidden = !CVarGetInteger("gVR.Enabled", 0); })
+        .Options(FloatSliderOptions()
+                     .Tooltip("Adjusts the perceived scale of the world in VR.")
+                     .Min(0.1f)
+                     .Max(5.0f)
+                     .DefaultValue(1.0f)
+                     .Step(0.1f));
+    AddWidget(path, "Recenter View", WIDGET_BUTTON)
+        .PreFunc([](WidgetInfo& info) { info.isHidden = !CVarGetInteger("gVR.Enabled", 0); })
+        .Callback([](WidgetInfo& info) { VR_Recenter(); })
+        .Options(ButtonOptions().Tooltip("Reset the VR head orientation to center."));
 
     AddRulesets();
 
@@ -657,13 +702,13 @@ void PortMenu::InitElement() {
         { DISABLE_FOR_NOT_DIRECTX,
           { [](disabledInfo& info) -> bool {
                return Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() !=
-                      Ship::WindowBackend::FAST3D_DXGI_DX11;
+                      Fast::WindowBackend::FAST3D_DXGI_DX11;
            },
             "Available Only on DirectX" } },
         { DISABLE_FOR_DIRECTX,
           { [](disabledInfo& info) -> bool {
                return Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() ==
-                      Ship::WindowBackend::FAST3D_DXGI_DX11;
+                      Fast::WindowBackend::FAST3D_DXGI_DX11;
            },
             "Not Available on DirectX" } },
         { DISABLE_FOR_MATCH_REFRESH_RATE_ON,
