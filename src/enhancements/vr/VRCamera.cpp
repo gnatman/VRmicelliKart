@@ -7,6 +7,7 @@ extern "C" {
 #include <libc/math.h>
 #include "main.h"
 #include "camera.h"
+#include "racing/math_util.h"
 #include "enhancements/vr/VRMode.h"
 #include "enhancements/vr/VRCamera.h"
 }
@@ -14,112 +15,98 @@ extern "C" {
 #include <cmath>
 
 /**
- * VR Camera — Phase 3 Implementation
+ * VR Camera Implementation — Matrix Anchoring
  *
- * Overrides the third-person camera with a first-person view anchored to the
- * player's kart. Head orientation is driven by mouse input (Phase 3) and will
- * be replaced by OpenXR head tracking in Phase 4b.
- *
- * Camera placement offsets per mode:
- *   - Cockpit: Slightly above and behind the kart center (driver's seat)
- *   - Hood:    At the front of the kart, low
- *   - Chase:   Behind and above the kart (like a close third-person)
+ * This version anchors the camera to the kart's physical chassis using its
+ * orientationMatrix. This ensures the view correctly inherits all 3D rotations
+ * of the vehicle (pitch, roll, yaw) while allowing independent head look.
  */
 
 // Height offset above the kart position for the driver's eye level
 static const float kCockpitHeightOffset = 8.0f;
-// Forward offset from kart center
 static const float kCockpitForwardOffset = 0.0f;
 
-// Hood cam offsets
-static const float kHoodHeightOffset = 4.0f;
-static const float kHoodForwardOffset = 12.0f;
-
-// Chase cam offsets
-static const float kChaseHeightOffset = 16.0f;
-static const float kChaseBackOffset = -25.0f;
-
 void VR_OverrideCamera(Camera* camera, Player* player, int eye) {
-    (void)eye; // Phase 3: mono rendering only
+    (void)eye; 
 
     if (player == NULL || camera == NULL) {
         return;
     }
 
+    // 1. Get VR Head Pose Data
     float headYaw = VR_GetHeadYaw();
     float headPitch = VR_GetHeadPitch();
-    int cameraMode = VR_GetCameraMode();
+    float headRoll = VR_GetHeadRoll();
+    float headPos[3];
+    VR_GetHeadPos(&headPos[0], &headPos[1], &headPos[2]);
+    
+    float worldScale = CVarGetFloat("gVR.WorldScale", 50.0f);
 
-    // Get kart's forward direction from player rotation
-    // player->rotation[1] is the yaw in N64 angle units (0-65535 = 0-360°)
-    float kartYaw = (float)player->rotation[1] * (2.0f * M_PI / 65536.0f);
-
-    // Kart forward vector (in N64 space: X is right, Y is up, Z is forward)
-    float kartForwardX = sinf(kartYaw);
-    float kartForwardZ = cosf(kartYaw);
-
-    // Kart right vector
-    float kartRightX = cosf(kartYaw);
-    float kartRightZ = -sinf(kartYaw);
-
-    // Determine position offsets based on camera mode
-    float heightOffset, forwardOffset, sideOffset;
-    switch (cameraMode) {
-        case VR_CAMERA_HOOD:
-            heightOffset = kHoodHeightOffset;
-            forwardOffset = kHoodForwardOffset;
-            sideOffset = 0.0f;
-            break;
-        case VR_CAMERA_CHASE:
-            heightOffset = kChaseHeightOffset;
-            forwardOffset = kChaseBackOffset;
-            sideOffset = 0.0f;
-            break;
-        case VR_CAMERA_COCKPIT:
-        default:
-            heightOffset = kCockpitHeightOffset;
-            forwardOffset = kCockpitForwardOffset;
-            sideOffset = 0.0f;
-            break;
+    // 2. Construct Kart Anchor Matrix (Parent)
+    // player->orientationMatrix is World-to-Local (for rendering),
+    // so we transpose it to get Local-to-World for our anchor.
+    Mat4 kartAnchor;
+    mtxf_identity(kartAnchor);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            kartAnchor[i][j] = player->orientationMatrix[j][i];
+        }
     }
+    
+    // Set kart position (driver seat)
+    kartAnchor[3][0] = player->pos[0];
+    kartAnchor[3][1] = player->pos[1] + kCockpitHeightOffset;
+    kartAnchor[3][2] = player->pos[2];
 
-    // Position the camera on the kart
-    camera->pos[0] = player->pos[0]
-                    + kartForwardX * forwardOffset
-                    + kartRightX * sideOffset;
-    camera->pos[1] = player->pos[1] + heightOffset;
-    camera->pos[2] = player->pos[2]
-                    + kartForwardZ * forwardOffset
-                    + kartRightZ * sideOffset;
+    // 3. Construct HMD Local Matrix (Child)
+    Mat4 hmdLocal, tempMtx;
+    mtxf_identity(hmdLocal);
+    
+    // Apply HMD Position (Positional Tracking)
+    hmdLocal[3][0] = headPos[0] * worldScale;
+    hmdLocal[3][1] = headPos[1] * worldScale;
+    hmdLocal[3][2] = headPos[2] * worldScale;
+    
+    // Apply HMD Rotation (Head Tracking)
+    // N64 rotations are s16 angles (0-65535)
+    s16 sPitch = (s16)(headPitch * 32768.0f / M_PI);
+    s16 sYaw   = (s16)(headYaw * 32768.0f / M_PI);
+    s16 sRoll  = (s16)(headRoll * 32768.0f / M_PI);
+    
+    // Order: Y (Yaw) -> X (Pitch) -> Z (Roll)
+    mtxf_rotate_y(tempMtx, sYaw);
+    mtxf_multiplication(hmdLocal, hmdLocal, tempMtx);
+    mtxf_rotate_x(tempMtx, sPitch);
+    mtxf_multiplication(hmdLocal, hmdLocal, tempMtx);
+    mtxf_s16_rotate_z(tempMtx, sRoll);
+    mtxf_multiplication(hmdLocal, hmdLocal, tempMtx);
 
-    // Compose head orientation with kart yaw
-    // Final yaw = kart yaw + head yaw (from mouse in Phase 3, from HMD in Phase 4b)
-    float finalYaw = kartYaw + headYaw;
+    // 4. Multiply HMD * Kart to get Final Camera Matrix
+    Mat4 finalMtx;
+    mtxf_multiplication(finalMtx, hmdLocal, kartAnchor);
 
-    // Build look direction from combined yaw and head pitch
-    float lookDirX = sinf(finalYaw) * cosf(headPitch);
-    float lookDirY = sinf(headPitch);
-    float lookDirZ = cosf(finalYaw) * cosf(headPitch);
-
-    // LookAt point = pos + look direction * some distance
+    // 5. Update N64 Camera Struct
+    // Position (Row 3)
+    camera->pos[0] = finalMtx[3][0];
+    camera->pos[1] = finalMtx[3][1];
+    camera->pos[2] = finalMtx[3][2];
+    
+    // Extract Forward Vector (Row 2) for LookAt
     float lookDistance = 50.0f;
-    camera->lookAt[0] = camera->pos[0] + lookDirX * lookDistance;
-    camera->lookAt[1] = camera->pos[1] + lookDirY * lookDistance;
-    camera->lookAt[2] = camera->pos[2] + lookDirZ * lookDistance;
+    camera->lookAt[0] = camera->pos[0] + finalMtx[2][0] * lookDistance;
+    camera->lookAt[1] = camera->pos[1] + finalMtx[2][1] * lookDistance;
+    camera->lookAt[2] = camera->pos[2] + finalMtx[2][2] * lookDistance;
+    
+    // Extract Up Vector (Row 1)
+    camera->up[0] = finalMtx[1][0];
+    camera->up[1] = finalMtx[1][1];
+    camera->up[2] = finalMtx[1][2];
 
-    // Up vector is always world up for Phase 3
-    // Phase 5 may tilt this for banking/comfort
-    camera->up[0] = 0.0f;
-    camera->up[1] = 1.0f;
-    camera->up[2] = 0.0f;
-
-    // Convert to N64 rotation format for compatibility with rendering pipeline
-    camera->rot[1] = (s16)(finalYaw * 65536.0f / (2.0f * M_PI));
-    camera->rot[0] = (s16)(headPitch * 65536.0f / (2.0f * M_PI));
-    camera->rot[2] = 0;
-
-    // Override field of view for VR
-    // Phase 3: Use a wider FOV for the first-person feel
-    // Phase 4b: This will be overridden by OpenXR asymmetric frustums
+    // Field of View
     camera->fieldOfView = CVarGetFloat("gVR.FOV", 90.0f);
+    
+    // Internal rotation values for legacy HUD/Logic (Yaw only)
+    camera->rot[1] = (s16)atan2s(finalMtx[2][0], finalMtx[2][2]);
+    camera->rot[0] = 0;
+    camera->rot[2] = 0;
 }

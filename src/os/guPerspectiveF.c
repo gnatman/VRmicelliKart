@@ -1,10 +1,18 @@
 #include "libultra_internal.h"
 #include "port/interpolation/FrameInterpolation.h"
 
+#include "enhancements/vr/VRMode.h"
+
 void guPerspectiveF(float mf[4][4], u16* perspNorm, float fovy, float aspect, float near, float far, float scale) {
     float yscale;
     int row;
     int col;
+    if (CVarGetInteger("gVR.Enabled", 0)) {
+        if (VR_BuildPerspectiveMatrix(mf, perspNorm, near, far, scale)) {
+            return;
+        }
+    }
+    
     if (CVarGetInteger("gNoCulling", 0)) {
         far = CVarGetFloat("gFarFrustrum", 10000.0f);
     }

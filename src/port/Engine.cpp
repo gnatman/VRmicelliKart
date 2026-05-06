@@ -426,6 +426,7 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
             gui->StartDraw();
 
             for (int eye = 0; eye < 2; eye++) {
+                VR_SetCurrentEye(eye);
                 uint32_t imageIndex;
                 if (!vrSession->GetSwapchain(eye)->AcquireImage(imageIndex)) continue;
                 vrSession->GetSwapchain(eye)->WaitImage(imageIndex);
@@ -436,6 +437,7 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
                 uint32_t height = vrSession->GetSwapchain(eye)->GetHeight();
 
                 renderingApi->BindExternalRenderTarget(rtv, dsv, width, height);
+                renderingApi->ClearFramebuffer(true, true);
 
                 interpreter->StartFrame();
                 interpreter->Run(pool, mtxStack);

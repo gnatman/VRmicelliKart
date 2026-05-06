@@ -12,6 +12,7 @@
 
 #include "libultra_internal.h"
 #include "port/interpolation/FrameInterpolation.h"
+#include "enhancements/vr/VRMode.h"
 
 void guLookAtF(float mf[4][4], float xEye, float yEye, float zEye, float xAt, float yAt, float zAt, float xUp,
                float yUp, float zUp) {
@@ -68,6 +69,10 @@ void guLookAtF(float mf[4][4], float xEye, float yEye, float zEye, float xAt, fl
     mf[1][3] = 0;
     mf[2][3] = 0;
     mf[3][3] = 1;
+
+    if (CVarGetInteger("gVR.Enabled", 0)) {
+        VR_ApplyEyeTransform(mf);
+    }
 }
 
 void guLookAt(Mtx* m, float xEye, float yEye, float zEye, float xAt, float yAt, float zAt, float xUp, float yUp,

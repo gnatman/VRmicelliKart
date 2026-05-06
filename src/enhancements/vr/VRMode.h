@@ -59,6 +59,16 @@ float VR_GetHeadYaw(void);
 float VR_GetHeadPitch(void);
 
 /**
+ * @brief Get the current head roll in radians.
+ */
+float VR_GetHeadRoll(void);
+
+/**
+ * @brief Get the current head position offset from center.
+ */
+void VR_GetHeadPos(float* x, float* y, float* z);
+
+/**
  * @brief Reset head orientation to center (recenter).
  */
 void VR_Recenter(void);
@@ -67,6 +77,19 @@ void VR_Recenter(void);
  * @brief Called at the end of each frame to submit to the OpenXR compositor.
  */
 void VR_PostFrame(void);
+
+/**
+ * @brief State accessors for per-eye rendering loops.
+ */
+void VR_SetCurrentEye(int eye);
+int VR_GetCurrentEye(void);
+void VR_Recenter(void);
+
+/**
+ * @brief Matrix math overrides for guPerspectiveF and guLookAtF.
+ */
+int VR_BuildPerspectiveMatrix(float mf[4][4], unsigned short* perspNorm, float nearPlane, float farPlane, float scale);
+int VR_ApplyEyeTransform(float mf[4][4]);
 
 #ifdef __cplusplus
 }
