@@ -12,6 +12,15 @@ extern "C" {
 
 #include <cmath>
 
+#ifdef LUS_ENABLE_VR
+#include "vr/VRSession.h"
+#include "fast/backends/gfx_direct3d_common.h"
+#include "fast/Fast3dWindow.h"
+
+static std::unique_ptr<LUS::VRSession> sVRSession;
+static LUS::VRPose sVRPose;
+#endif
+
 /**
  * VR Mode — Phase 3 Implementation (Desktop Only)
  *
@@ -56,8 +65,23 @@ void VR_Init(void) {
     sVRHeadPitch = 0.0f;
     sVRInitialized = true;
 
-    // Phase 4a: OpenXR initialization will go here
-    printf("[VR] VR Mode initialized (Phase 3 — Desktop Only)\n");
+#ifdef LUS_ENABLE_VR
+    auto* fastWnd = dynamic_cast<Fast::Fast3dWindow*>(GameEngine::Instance->context->GetWindow().get());
+    if (fastWnd) {
+        auto* renderingApi = dynamic_cast<Fast::GfxRenderingAPIDX11*>(fastWnd->GetRenderingApi());
+        if (renderingApi) {
+            sVRSession = std::make_unique<LUS::VRSession>(renderingApi->GetDevice());
+            if (sVRSession->Init()) {
+                printf("[VR] OpenXR Session initialized successfully.\n");
+            } else {
+                printf("[VR] OpenXR Session failed to initialize.\n");
+                sVRSession.reset();
+            }
+        }
+    }
+#endif
+
+    printf("[VR] VR Mode initialized\n");
 }
 
 void VR_Shutdown(void) {
@@ -66,7 +90,13 @@ void VR_Shutdown(void) {
     }
     sVRInitialized = false;
 
-    // Phase 4a: OpenXR shutdown will go here
+#ifdef LUS_ENABLE_VR
+    if (sVRSession) {
+        sVRSession->Shutdown();
+        sVRSession.reset();
+    }
+#endif
+
     printf("[VR] VR Mode shut down\n");
 }
 
@@ -75,7 +105,15 @@ void VR_PreFrame(void) {
         return;
     }
 
-    // Phase 3: Use mouse delta for head rotation (right-click drag)
+#ifdef LUS_ENABLE_VR
+    if (sVRSession && sVRSession->IsSessionActive()) {
+        sVRSession->WaitFrame(sVRPose);
+        sVRSession->BeginFrame();
+        // In Phase 4b, we'll extract yaw/pitch from sVRPose.head
+    }
+#endif
+
+    // Phase 3 fallback: Use mouse delta for head rotation
     auto wnd = GameEngine::Instance->context->GetWindow();
     Ship::Coords mouse = wnd->GetMouseDelta();
 
@@ -91,8 +129,6 @@ void VR_PreFrame(void) {
             sVRHeadPitch = -kMaxPitch;
         }
     }
-
-    // Phase 4a: xrWaitFrame / xrBeginFrame / xrLocateViews will go here
 }
 
 int VR_GetCameraMode(void) {
@@ -111,3 +147,20 @@ void VR_Recenter(void) {
     sVRHeadYaw = 0.0f;
     sVRHeadPitch = 0.0f;
 }
+
+void VR_PostFrame(void) {
+    if (!VR_IsEnabled()) {
+        return;
+    }
+#ifdef LUS_ENABLE_VR
+    if (sVRSession && sVRSession->IsSessionActive()) {
+        // We'll use XR_ENVIRONMENT_BLEND_MODE_OPAQUE for normal VR
+        sVRSession->EndFrame(XR_ENVIRONMENT_BLEND_MODE_OPAQUE);
+    }
+#endif
+}
+
+#ifdef LUS_ENABLE_VR
+LUS::VRSession* VR_GetSession() { return sVRSession.get(); }
+LUS::VRPose* VR_GetPose() { return &sVRPose; }
+#endif

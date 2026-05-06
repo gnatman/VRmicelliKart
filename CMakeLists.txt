@@ -224,6 +224,7 @@ add_compile_definitions(
     NON_EQUIVALENT=1
  AVOID_UB=1
  SPAGHETTI_VERSION="${PROJECT_VERSION}"
+ $<$<BOOL:${ENABLE_DX11}>:LUS_ENABLE_VR>
 )
 
 
@@ -252,6 +253,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/freecam
     ${CMAKE_CURRENT_SOURCE_DIR}/src/enhancements/vr
+    ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/vr
 )
 
 # Collect source files to build the executable

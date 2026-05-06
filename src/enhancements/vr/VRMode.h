@@ -63,8 +63,17 @@ float VR_GetHeadPitch(void);
  */
 void VR_Recenter(void);
 
+/**
+ * @brief Called at the end of each frame to submit to the OpenXR compositor.
+ */
+void VR_PostFrame(void);
+
 #ifdef __cplusplus
 }
+
+namespace LUS { class VRSession; struct VRPose; }
+LUS::VRSession* VR_GetSession();
+LUS::VRPose* VR_GetPose();
 #endif
 
 #endif // VR_MODE_H

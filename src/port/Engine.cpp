@@ -32,7 +32,11 @@
 #include "port/interpolation/FrameInterpolation.h"
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
-// #include <Fast3D/gfx_rendering_api.h>
+#include "enhancements/vr/VRMode.h"
+#ifdef LUS_ENABLE_VR
+#include "vr/VRSession.h"
+#include "fast/backends/gfx_direct3d_common.h"
+#endif
 #include <SDL2/SDL.h>
 
 #include <utility>
@@ -411,10 +415,52 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
 
     interpreter->mInterpolationIndex = 0;
 
+#ifdef LUS_ENABLE_VR
+    auto vrSession = VR_GetSession();
+    if (VR_IsEnabled() && vrSession && vrSession->IsSessionActive()) {
+        auto gui = wnd->GetGui();
+        auto* renderingApi = dynamic_cast<Fast::GfxRenderingAPIDX11*>(wnd->GetRenderingApi());
+        
+        for (const auto& mtxStack : mtx_replacements) {
+            wnd->GetMouseStateManager()->StartFrame();
+            gui->StartDraw();
+
+            for (int eye = 0; eye < 2; eye++) {
+                uint32_t imageIndex;
+                if (!vrSession->GetSwapchain(eye)->AcquireImage(imageIndex)) continue;
+                vrSession->GetSwapchain(eye)->WaitImage(imageIndex);
+
+                auto rtv = vrSession->GetSwapchain(eye)->GetRTV(imageIndex);
+                auto dsv = vrSession->GetSwapchain(eye)->GetDSV(imageIndex);
+                uint32_t width = vrSession->GetSwapchain(eye)->GetWidth();
+                uint32_t height = vrSession->GetSwapchain(eye)->GetHeight();
+
+                renderingApi->BindExternalRenderTarget(rtv, dsv, width, height);
+
+                interpreter->StartFrame();
+                interpreter->Run(pool, mtxStack);
+                interpreter->EndFrame();
+
+                renderingApi->UnbindExternalRenderTarget();
+                vrSession->GetSwapchain(eye)->ReleaseImage(imageIndex);
+            }
+            
+            VR_PostFrame();
+            gui->EndDraw();
+            interpreter->mInterpolationIndex++;
+        }
+    } else {
+        for (const auto& mtxStack : mtx_replacements) {
+            wnd->DrawAndRunGraphicsCommands(pool, mtxStack);
+            interpreter->mInterpolationIndex++;
+        }
+    }
+#else
     for (const auto& mtxStack : mtx_replacements) {
         wnd->DrawAndRunGraphicsCommands(pool, mtxStack);
         interpreter->mInterpolationIndex++;
     }
+#endif
 
     bool curAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     if (prevAltAssets != curAltAssets) {
