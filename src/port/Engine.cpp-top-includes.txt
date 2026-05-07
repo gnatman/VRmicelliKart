@@ -1,0 +1,90 @@
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "main.h"
+#ifdef __cplusplus
+}
+#endif
+
+#include "Engine.h"
+
+#include "ship/utils/StringHelper.h"
+#include "GameExtractor.h"
+#include "mods/ModManager.h"
+#include "ui/ImguiUI.h"
+#include "ship/Context.h"
+#include "ship/controller/controldevice/controller/mapping/ControllerDefaultMappings.h"
+#include "resource/type/ResourceType.h"
+#include "fast/resource/ResourceType.h"
+#include "resource/importers/GenericArrayFactory.h"
+#include "resource/importers/AudioBankFactory.h"
+#include "resource/importers/AudioSampleFactory.h"
+#include "resource/importers/AudioSequenceFactory.h"
+#include "resource/importers/Vec3fFactory.h"
+#include "resource/importers/Vec3sFactory.h"
+#include "resource/importers/CPUFactory.h"
+#include "resource/importers/CourseVtxFactory.h"
+#include "resource/importers/TrackSectionsFactory.h"
+#include "resource/importers/TrackPathPointFactory.h"
+#include "resource/importers/ActorSpawnDataFactory.h"
+#include "resource/importers/UnkActorSpawnDataFactory.h"
+#include "resource/importers/ArrayFactory.h"
+#include "resource/importers/MinimapFactory.h"
+#include "resource/importers/BetterTextureFactory.h"
+#include <ship/window/gui/Fonts.h>
+#include "ship/window/gui/resource/Font.h"
+#include "ship/window/gui/resource/FontFactory.h"
+#include "SpaghettiControlDeck.h"
+#include "SpaghettiGui.h"
+#include "ship/ffb/FFBManager.h"
+#include "vr/VRSession.h"
+#include "enhancements/vr/VRMode.h"
+#include "enhancements/wheel/FFBEffects.h"
+#include "enhancements/telemetry/Telemetry.h"
+#include "enhancements/telemetry/TelemetryCalibration.h"
+
+#include "port/interpolation/FrameInterpolation.h"
+#include <fast/Fast3dWindow.h>
+#include <fast/interpreter.h>
+// #include <Fast3D/gfx_rendering_api.h>
+#include <SDL2/SDL.h>
+
+#include <utility>
+
+
+#ifdef __SWITCH__
+#include <port/switch/SwitchImpl.h>
+#endif
+
+#include <macros.h>
+#include <fast/resource/factory/DisplayListFactory.h>
+#include <fast/resource/factory/TextureFactory.h>
+#include <fast/resource/factory/MatrixFactory.h>
+#include <ship/resource/factory/BlobFactory.h>
+#include <fast/resource/factory/VertexFactory.h>
+#include <fast/resource/factory/LightFactory.h>
+// #include <PngFactory.h>
+#include "audio/internal.h"
+#include "audio/GameAudio.h"
+
+#include "spawn_players.h"
+#include "main.h"
+
+#include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <nlohmann/json.hpp>
+
+#include <ship/window/gui/GuiWindow.h>
+#include <ship/window/gui/Gui.h>
+#include <ship/libultra/controller.h>
+#include <libultraship/libultraship.h>
+
+using namespace Ship;
