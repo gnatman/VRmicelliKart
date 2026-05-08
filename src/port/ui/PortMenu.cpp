@@ -613,6 +613,20 @@ void PortMenu::AddSceneVisibility() {
         .Options(UIWidgets::CheckboxOptions().DefaultValue(true));
 }
 
+void PortMenu::AddVR() {
+    AddMenuEntry("VR", "gSettings.Menu.VRSidebarSection");
+    AddSidebarEntry("VR", "General", 1);
+    WidgetPath path = { "VR", "General", SECTION_COLUMN_1 };
+
+    AddWidget(path, "Enable VR", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVREnabled")
+        .Options(CheckboxOptions().Tooltip("Master toggle for VR logic."));
+
+    AddWidget(path, "Enable Mock Pose (Mouse)", WIDGET_CVAR_CHECKBOX)
+        .CVar("gMockVREnabled")
+        .Options(CheckboxOptions().Tooltip("Allows rotating the VR view with Alt + Mouse, and moving with Arrow Keys."));
+}
+
 PortMenu::PortMenu(const std::string& consoleVariable, const std::string& name)
     : Menu(consoleVariable, name, 0, UIWidgets::Colors::LightBlue) {
 }
@@ -622,6 +636,7 @@ void PortMenu::InitElement() {
     AddSettings();
     AddEnhancements();
     AddDevTools();
+    AddVR();
 
     if (CVarGetInteger("gSettings.Menu.SidebarSearch", 0)) {
         InsertSidebarSearch();
