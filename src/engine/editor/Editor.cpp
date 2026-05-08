@@ -64,11 +64,12 @@ namespace TrackEditor {
         bIsEditorPaused = false;
         CVarSetInteger("gFreecam", false);
         CM_SetFreeCamera(false);
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Tools")->Hide();
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Scene Explorer")->Hide();
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Content Browser")->Hide();
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Track Properties")->Hide();
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Properties")->Hide();
+        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
+        if (auto window = gui->GetGuiWindow("Tools")) window->Hide();
+        if (auto window = gui->GetGuiWindow("Scene Explorer")) window->Hide();
+        if (auto window = gui->GetGuiWindow("Content Browser")) window->Hide();
+        if (auto window = gui->GetGuiWindow("Track Properties")) window->Hide();
+        if (auto window = gui->GetGuiWindow("Properties")) window->Hide();
     }
 
     bool Editor::IsEnabled() {

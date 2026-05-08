@@ -213,7 +213,7 @@ void PortMenu::AddSettings() {
     // Graphics Settings
     static int32_t maxFps;
     const char* tooltip = "";
-    if (Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() == Ship::WindowBackend::FAST3D_DXGI_DX11) {
+    if (static_cast<Ship::WindowBackend>(Ship::Context::GetInstance()->GetWindow()->GetWindowBackend()) == Ship::WindowBackend::FAST3D_DXGI_DX11) {
         maxFps = MAX_FPS;
         tooltip = "Uses Matrix Interpolation to create extra frames, resulting in smoother graphics. This is "
                   "purely visual and does not impact game logic, execution of glitches etc.\n\nA higher target "
@@ -656,13 +656,13 @@ void PortMenu::InitElement() {
             "Multi-viewports not supported" } },
         { DISABLE_FOR_NOT_DIRECTX,
           { [](disabledInfo& info) -> bool {
-               return Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() !=
+               return static_cast<Ship::WindowBackend>(Ship::Context::GetInstance()->GetWindow()->GetWindowBackend()) !=
                       Ship::WindowBackend::FAST3D_DXGI_DX11;
            },
             "Available Only on DirectX" } },
         { DISABLE_FOR_DIRECTX,
           { [](disabledInfo& info) -> bool {
-               return Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() ==
+               return static_cast<Ship::WindowBackend>(Ship::Context::GetInstance()->GetWindow()->GetWindowBackend()) ==
                       Ship::WindowBackend::FAST3D_DXGI_DX11;
            },
             "Not Available on DirectX" } },

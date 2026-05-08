@@ -188,7 +188,6 @@ GameEngine::GameEngine() {
     SPDLOG_INFO(CVarGetInteger("gEnableDebugMode", 0) == 0 ? "Debug Mode deactivated" : "Debug Mode activated");
 
     wnd->SetRendererUCode(ucode_f3dex);
-    this->context->InitGfxDebugger();
 
     auto loader = context->GetResourceManager()->GetResourceLoader();
     loader->RegisterResourceFactory(std::make_shared<SM64::AudioBankFactoryV0>(), RESOURCE_FORMAT_BINARY, "AudioBank",
