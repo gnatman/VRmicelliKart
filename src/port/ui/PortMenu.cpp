@@ -625,6 +625,64 @@ void PortMenu::AddVR() {
     AddWidget(path, "Enable Mock Pose (Mouse)", WIDGET_CVAR_CHECKBOX)
         .CVar("gMockVREnabled")
         .Options(CheckboxOptions().Tooltip("Allows rotating the VR view with Alt + Mouse, and moving with Arrow Keys."));
+
+    AddWidget(path, "Performance Overlay", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVR.PerformanceOverlay")
+        .Options(CheckboxOptions().Tooltip("Show VR frame timings and status."));
+
+    AddSidebarEntry("VR", "Scale & View", 1);
+    path.sidebarName = "Scale & View";
+
+    AddWidget(path, "IPD Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.IPDScale")
+        .Options(FloatSliderOptions()
+            .Min(0.5f)
+            .Max(1.5f)
+            .DefaultValue(1.0f)
+            .Tooltip("Scales the distance between eyes. Useful for adjusting perceived depth."));
+
+    AddWidget(path, "World Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.WorldScale")
+        .Options(FloatSliderOptions()
+            .Min(0.1f)
+            .Max(10.0f)
+            .DefaultValue(1.0f)
+            .Tooltip("Scales your physical movement in the game world. 1.0 is life-size."));
+
+    AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.Supersampling")
+        .Options(FloatSliderOptions()
+            .Min(0.5f)
+            .Max(2.0f)
+            .DefaultValue(1.0f)
+            .Tooltip("Multiplies the resolution of eye buffers. Requires restart or VR toggle to apply."));
+
+    AddWidget(path, "MSAA (Eye Buffers): %d", WIDGET_CVAR_SLIDER_INT)
+        .CVar("gVR.MSAA")
+        .Options(IntSliderOptions()
+            .Min(1)
+            .Max(8)
+            .DefaultValue(1)
+            .Tooltip("Anti-aliasing for eye buffers. Requires restart or VR toggle to apply."));
+
+    AddSidebarEntry("VR", "HUD", 1);
+    path.sidebarName = "HUD";
+
+    AddWidget(path, "HUD Distance: %.2fm", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.HUDDistance")
+        .Options(FloatSliderOptions()
+            .Min(0.5f)
+            .Max(5.0f)
+            .DefaultValue(1.5f)
+            .Tooltip("Distance of the 2D HUD from your head in meters."));
+
+    AddWidget(path, "HUD Width: %.2fm", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVR.HUDWidth")
+        .Options(FloatSliderOptions()
+            .Min(0.3f)
+            .Max(3.0f)
+            .DefaultValue(1.0f)
+            .Tooltip("Physical width of the 2D HUD quad in meters."));
 }
 
 PortMenu::PortMenu(const std::string& consoleVariable, const std::string& name)
