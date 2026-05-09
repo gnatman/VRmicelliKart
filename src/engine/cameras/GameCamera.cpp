@@ -158,7 +158,22 @@ void GameCamera::SetViewProjection() {
     auto window = Ship::Context::GetInstance()->GetWindow();
     if (window != nullptr) {
         float q[4];
-        LookAtToQuaternion(_camera->pos, _camera->lookAt, _camera->up, q);
+        Player* player = &gPlayers[_camera->playerId];
+        
+        // The camera target (lookAt) needs to be instantly locked to the kart's orientation.
+        // Invert the X components to fix inverted steering rotation.
+        float kart_at[3] = {
+            _camera->pos[0] - player->orientationMatrix[0][2], // Inverted X
+            _camera->pos[1] + player->orientationMatrix[1][2],
+            _camera->pos[2] + player->orientationMatrix[2][2]
+        };
+        float kart_up[3] = {
+            -player->orientationMatrix[0][1], // Inverted X
+            player->orientationMatrix[1][1],
+            player->orientationMatrix[2][1]
+        };
+        
+        LookAtToQuaternion(_camera->pos, kart_at, kart_up, q);
         window->SetVRBaseTrackingSpace(_camera->pos, q);
     }
 
