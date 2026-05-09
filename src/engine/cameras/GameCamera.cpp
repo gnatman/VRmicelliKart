@@ -5,6 +5,7 @@
 #include "engine/Matrix.h"
 #include "port/Game.h"
 #include <ship/Context.h>
+#include <math.h>
 
 extern "C" {
 #include "main.h"
@@ -86,6 +87,59 @@ Mtx* GameCamera::GetLookAtMatrix() {
     return &LookAtMatrix;
 }
 
+// Helper to convert LookAt parameters to a quaternion representing the camera's world orientation
+static void LookAtToQuaternion(float* eye, float* at, float* up, float* q) {
+    float f[3] = { at[0] - eye[0], at[1] - eye[1], at[2] - eye[2] };
+    float len = sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+    if (len > 0.0001f) {
+        f[0] /= len; f[1] /= len; f[2] /= len;
+    } else {
+        f[0] = 0.0f; f[1] = 0.0f; f[2] = -1.0f;
+    }
+
+    float s[3] = { f[1] * up[2] - f[2] * up[1], f[2] * up[0] - f[0] * up[2], f[0] * up[1] - f[1] * up[0] };
+    len = sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+    if (len > 0.0001f) {
+        s[0] /= len; s[1] /= len; s[2] /= len;
+    } else {
+        s[0] = 1.0f; s[1] = 0.0f; s[2] = 0.0f;
+    }
+
+    float u[3] = { s[1] * f[2] - s[2] * f[1], s[2] * f[0] - s[0] * f[2], s[0] * f[1] - s[1] * f[0] };
+
+    // The camera's world matrix columns are [right, up, -forward]
+    float m00 = s[0], m01 = u[0], m02 = -f[0];
+    float m10 = s[1], m11 = u[1], m12 = -f[1];
+    float m20 = s[2], m21 = u[2], m22 = -f[2];
+
+    float tr = m00 + m11 + m22;
+    if (tr > 0) {
+        float S = sqrt(tr + 1.0f) * 2;
+        q[3] = 0.25f * S;
+        q[0] = (m21 - m12) / S;
+        q[1] = (m02 - m20) / S;
+        q[2] = (m10 - m01) / S;
+    } else if ((m00 > m11) && (m00 > m22)) {
+        float S = sqrt(1.0f + m00 - m11 - m22) * 2;
+        q[3] = (m21 - m12) / S;
+        q[0] = 0.25f * S;
+        q[1] = (m01 + m10) / S;
+        q[2] = (m02 + m20) / S;
+    } else if (m11 > m22) {
+        float S = sqrt(1.0f + m11 - m00 - m22) * 2;
+        q[3] = (m02 - m20) / S;
+        q[0] = (m01 + m10) / S;
+        q[1] = 0.25f * S;
+        q[2] = (m12 + m21) / S;
+    } else {
+        float S = sqrt(1.0f + m22 - m00 - m11) * 2;
+        q[3] = (m10 - m01) / S;
+        q[0] = (m02 + m20) / S;
+        q[1] = (m12 + m21) / S;
+        q[2] = 0.25f * S;
+    }
+}
+
 void GameCamera::SetViewProjection() {
     u16 perspNorm;
 
@@ -98,48 +152,15 @@ void GameCamera::SetViewProjection() {
                   CM_GetProps()->NearPersp, CM_GetProps()->FarPersp, 1.0f);
     gSPPerspNormalize(gDisplayListHead++, perspNorm);
     gSPMatrix(gDisplayListHead++, &PerspectiveMatrix,
-              G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+               G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 
-#ifdef ENABLE_VR
-    auto window = Context::GetInstance()->GetWindow();
+    // Update VR base tracking space
+    auto window = Ship::Context::GetInstance()->GetWindow();
     if (window != nullptr) {
-        auto headPose = window->GetVRHeadPose();
-        if (headPose != nullptr) {
-            float x = headPose->orientation[0];
-            float y = headPose->orientation[1];
-            float z = headPose->orientation[2];
-            float w = headPose->orientation[3];
-
-            float xx = x * x;
-            float xy = x * y;
-            float xz = x * z;
-            float xw = x * w;
-            float yy = y * y;
-            float yz = y * z;
-            float yw = y * w;
-            float zz = z * z;
-            float zw = z * w;
-
-            float m00 = 1.0f - 2.0f * (yy + zz);
-            float m01 = 2.0f * (xy - zw);
-            float m02 = 2.0f * (xz + yw);
-            float m10 = 2.0f * (xy + zw);
-            float m11 = 1.0f - 2.0f * (xx + zz);
-            float m12 = 2.0f * (yz - xw);
-            float m20 = 2.0f * (xz - yw);
-            float m21 = 2.0f * (yz + xw);
-            float m22 = 1.0f - 2.0f * (xx + yy);
-
-            float dx = lookAt.x - pos.x;
-            float dy = lookAt.y - pos.y;
-            float dz = lookAt.z - pos.z;
-
-            lookAt.x = pos.x + (m00 * dx + m01 * dy + m02 * dz);
-            lookAt.y = pos.y + (m10 * dx + m11 * dy + m12 * dz);
-            lookAt.z = pos.z + (m20 * dx + m21 * dy + m22 * dz);
-        }
+        float q[4];
+        LookAtToQuaternion(_camera->pos, _camera->lookAt, _camera->up, q);
+        window->SetVRBaseTrackingSpace(_camera->pos, q);
     }
-#endif
 
     // Calculate the camera lookAt (camera rotation)
     guLookAt(&LookAtMatrix, _camera->pos[0], _camera->pos[1], _camera->pos[2], _camera->lookAt[0],
