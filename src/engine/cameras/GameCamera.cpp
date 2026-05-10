@@ -57,8 +57,6 @@ void GameCamera::Tick() {
         return;
     }
 
-    // Log the camera position to debug tracking
-    spdlog::info("Camera Pos: ({}, {}, {})", _camera->pos[0], _camera->pos[1], _camera->pos[2]);
 
     func_8001EE98(&gPlayers[_camera->playerId], _camera, _camera->cameraId);
 }

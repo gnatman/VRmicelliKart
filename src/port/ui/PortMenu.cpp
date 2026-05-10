@@ -627,14 +627,14 @@ void PortMenu::AddVR() {
         .Options(CheckboxOptions().Tooltip("Allows rotating the VR view with Alt + Mouse, and moving with Arrow Keys."));
 
     AddWidget(path, "Performance Overlay", WIDGET_CVAR_CHECKBOX)
-        .CVar("gVR.PerformanceOverlay")
+        .CVar("gVRPerformanceOverlay")
         .Options(CheckboxOptions().Tooltip("Show VR frame timings and status."));
 
     AddSidebarEntry("VR", "Scale & View", 1);
     path.sidebarName = "Scale & View";
 
     AddWidget(path, "IPD Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.IPDScale")
+        .CVar("gVRIPDScale")
         .Options(FloatSliderOptions()
             .Min(0.5f)
             .Max(1.5f)
@@ -642,7 +642,7 @@ void PortMenu::AddVR() {
             .Tooltip("Scales the distance between eyes. Useful for adjusting perceived depth."));
 
     AddWidget(path, "World Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.WorldScale")
+        .CVar("gVRWorldScale")
         .Options(FloatSliderOptions()
             .Min(0.1f)
             .Max(10.0f)
@@ -650,7 +650,7 @@ void PortMenu::AddVR() {
             .Tooltip("Scales your physical movement in the game world. 1.0 is life-size."));
 
     AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.Supersampling")
+        .CVar("gVRSupersampling")
         .Options(FloatSliderOptions()
             .Min(0.5f)
             .Max(2.0f)
@@ -658,7 +658,7 @@ void PortMenu::AddVR() {
             .Tooltip("Multiplies the resolution of eye buffers. Requires restart or VR toggle to apply."));
 
     AddWidget(path, "MSAA (Eye Buffers): %d", WIDGET_CVAR_SLIDER_INT)
-        .CVar("gVR.MSAA")
+        .CVar("gVRMSAA")
         .Options(IntSliderOptions()
             .Min(1)
             .Max(8)
@@ -669,7 +669,7 @@ void PortMenu::AddVR() {
     path.sidebarName = "HUD";
 
     AddWidget(path, "HUD Distance: %.2fm", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.HUDDistance")
+        .CVar("gVRHUDDistance")
         .Options(FloatSliderOptions()
             .Min(0.5f)
             .Max(5.0f)
@@ -677,7 +677,7 @@ void PortMenu::AddVR() {
             .Tooltip("Distance of the 2D HUD from your head in meters."));
 
     AddWidget(path, "HUD Width: %.2fm", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.HUDWidth")
+        .CVar("gVRHUDWidth")
         .Options(FloatSliderOptions()
             .Min(0.3f)
             .Max(3.0f)

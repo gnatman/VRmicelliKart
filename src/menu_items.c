@@ -1,4 +1,5 @@
 #include <libultraship.h>
+#include <bridge/VRHudBridge.h>
 #include <libultra/types.h>
 #include <macros.h>
 #include <string.h>
@@ -2399,6 +2400,7 @@ UNUSED void func_80093C90(void) {
 }
 
 void func_80093C98(s32 arg0) {
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(D_802B8880));
     // guOrtho(&gGfxPool->mtxEffect[gMatrixEffectCount], 0.0f, 319.0f, 239.0f, 0.0f, -100.0f, 100.0f, 1.0f);
     // gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(&gGfxPool->mtxEffect[gMatrixEffectCount++]),
@@ -2414,6 +2416,7 @@ void func_80093C98(s32 arg0) {
         gMatrixEffectCount = 0;
         // ClearEffectsMatrixPool();
     }
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
 }
 
 void func_80093E20(void) {
@@ -2447,6 +2450,7 @@ void func_80093E60(void) {
 }
 
 void func_80093F10(void) {
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(D_802B8880));
     // guOrtho(&gGfxPool->mtxEffect[gMatrixEffectCount], 0.0f, 319.0f, 239.0f, 0.0f, -100.0f, 100.0f, 1.0f);
     // gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(&gGfxPool->mtxEffect[gMatrixEffectCount++]),
@@ -2466,9 +2470,11 @@ void func_80093F10(void) {
     gSPDisplayList(gDisplayListHead++, D_02007F48);
     gMatrixEffectCount = 0;
     // ClearEffectsMatrixPool();
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
 }
 
 void func_800940EC(s32 arg0) {
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(D_802B8880));
     gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     // guOrtho(&gGfxPool->mtxEffect[gMatrixEffectCount], 0.0f, 319.0f, 239.0f, 0.0f, -100.0f, 100.0f, 1.0f);
@@ -2487,6 +2493,7 @@ void func_800940EC(s32 arg0) {
     func_8009CA6C(arg0);
     gSPDisplayList(gDisplayListHead++, D_02007F48);
     func_80057CE4();
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
 }
 
 void func_800942D0(void) {
@@ -2566,6 +2573,7 @@ void render_checkered_flag(struct GfxPool* arg0, UNUSED s32 arg1) {
 }
 
 void func_80094A64(struct GfxPool* pool) {
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     ClearObjectsMatrixPool();
     gMatrixHudCount = 0;
     gMatrixEffectCount = 0;
@@ -2604,6 +2612,7 @@ void func_80094A64(struct GfxPool* pool) {
     gCycleFlashMenu += 1;
     gDPPipeSync(gDisplayListHead++);
     gSPDisplayList(gDisplayListHead++, D_020076B0);
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
 }
 
 void setup_menus(void) {

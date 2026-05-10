@@ -41,6 +41,7 @@
 #include "engine/Matrix.h"
 #include "engine/editor/Editor.h"
 #include "port/interpolation/FrameInterpolation.h"
+#include "bridge/VRHudBridge.h"
 
 //! @warning this macro is undef'd at the end of this file
 #define MAKE_RGB(r, g, b) (((r) << 0x10) | ((g) << 0x08) | (b << 0x00))
@@ -654,6 +655,7 @@ void render_hud(u32 arg0) {
     D_8018D21C = arg0;
     gSPDisplayList(gDisplayListHead++, D_0D0076F8);
     if (D_8018D22C == 0) {
+        Ship_VR_EmitHudPassBegin(&gDisplayListHead);
         switch (arg0) {
             case RENDER_SCREEN_MODE_1P_PLAYER_ONE:
                 func_80058F78();
@@ -713,6 +715,7 @@ void render_hud(u32 arg0) {
                 }
                 break;
         }
+        Ship_VR_EmitHudPassEnd(&gDisplayListHead);
     }
 }
 
@@ -812,6 +815,7 @@ void func_800591B4(void) {
         gSPDisplayList(gDisplayListHead++, D_0D0076F8);
         gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER);
 
+        Ship_VR_EmitHudPassBegin(&gDisplayListHead);
         if (gIsHUDVisible != 0) {
             if (D_801657D8 == 0) {
                 if (D_801657F0 != false) {
@@ -842,6 +846,7 @@ void func_800591B4(void) {
         func_8005902C();
         func_80057DD0();
         func_80057CE4();
+        Ship_VR_EmitHudPassEnd(&gDisplayListHead);
     }
 }
 

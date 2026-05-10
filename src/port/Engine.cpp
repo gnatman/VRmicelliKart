@@ -32,6 +32,7 @@
 #include "port/interpolation/FrameInterpolation.h"
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
+#include <vr/VRToggle.h>
 // #include <Fast3D/gfx_rendering_api.h>
 #include <SDL2/SDL.h>
 
@@ -759,6 +760,9 @@ extern "C" void Timer_SetValue(int32_t* address, int32_t value) {
 }
 
 extern "C" float OTRGetAspectRatio() {
+    if (Ship::VRToggle::IsVREnabled()) {
+        return 4.0f / 3.0f; // Force 4:3 aspect ratio for UI elements since the VR HUD quad is 4:3
+    }
     return GetInterpreter()->mCurDimensions.aspect_ratio;
 }
 

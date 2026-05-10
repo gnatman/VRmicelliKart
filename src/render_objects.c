@@ -50,6 +50,7 @@
 #include "engine/sky/Sky.h"
 
 #include "port/interpolation/FrameInterpolation.h"
+#include "bridge/VRHudBridge.h"
 #include "assets/textures/tracks/sherbet_land/sherbet_land_data.h"
 
 Lights1 D_800E45C0[] = {
@@ -4158,10 +4159,12 @@ UNUSED void func_800579B8(s32 arg0, s32 arg1, char* arg2) {
 }
 
 void func_800579F8(s32 arg0, s32 arg1, char* arg2, u32 arg3) {
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     load_debug_font();
     debug_print_string(&arg0, &arg1, arg2);
     debug_print_number(&arg0, &arg1, arg3, 10);
     func_80057778();
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
 }
 
 void func_80057A50(s32 x, s32 y, char* str, u32 arg3) {
