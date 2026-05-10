@@ -58,6 +58,11 @@ static const std::unordered_map<int32_t, const char*> logLevels = {
     { DEBUG_LOG_OFF, "Off" },
 };
 
+static const std::unordered_map<int32_t, const char*> vrCameraModeOptions = {
+    { 0, "Chase" },
+    { 1, "Cockpit" },
+};
+
 class PortMenu : public Ship::Menu {
   public:
     PortMenu(const std::string& consoleVariable, const std::string& name);

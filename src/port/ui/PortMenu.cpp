@@ -633,6 +633,13 @@ void PortMenu::AddVR() {
     AddSidebarEntry("VR", "Scale & View", 1);
     path.sidebarName = "Scale & View";
 
+    AddWidget(path, "VR Camera Mode", WIDGET_CVAR_COMBOBOX)
+        .CVar("gVRCameraMode")
+        .Options(ComboboxOptions()
+            .ComboMap(vrCameraModeOptions)
+            .DefaultIndex(0)
+            .Tooltip("Switch between Chase (behind character) and Cockpit (first-person) camera modes."));
+
     AddWidget(path, "IPD Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRIPDScale")
         .Options(FloatSliderOptions()

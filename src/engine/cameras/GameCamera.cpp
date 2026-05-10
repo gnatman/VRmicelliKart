@@ -157,13 +157,29 @@ void GameCamera::SetViewProjection() {
     if (window != nullptr) {
         float q[4];
         Player* player = &gPlayers[_camera->playerId];
+        int cameraMode = CVarGetInteger("gVRCameraMode", 0);
         
+        float basePos[3];
+        if (cameraMode == 1) { // Cockpit
+            // Put the camera at the player position + vertical offset for head height.
+            // We use the player's orientation matrix to keep the head height relative to the kart's tilt.
+            // orientationMatrix[i][1] is the UP vector.
+            float headHeight = 5.0f;
+            basePos[0] = player->pos[0] + player->orientationMatrix[0][1] * headHeight;
+            basePos[1] = player->pos[1] + player->orientationMatrix[1][1] * headHeight;
+            basePos[2] = player->pos[2] + player->orientationMatrix[2][1] * headHeight;
+        } else {
+            basePos[0] = _camera->pos[0];
+            basePos[1] = _camera->pos[1];
+            basePos[2] = _camera->pos[2];
+        }
+
         // The camera target (lookAt) needs to be instantly locked to the kart's orientation.
         // Invert the X components to fix inverted steering rotation.
         float kart_at[3] = {
-            _camera->pos[0] - player->orientationMatrix[0][2], // Inverted X
-            _camera->pos[1] + player->orientationMatrix[1][2],
-            _camera->pos[2] + player->orientationMatrix[2][2]
+            basePos[0] - player->orientationMatrix[0][2], // Inverted X
+            basePos[1] + player->orientationMatrix[1][2],
+            basePos[2] + player->orientationMatrix[2][2]
         };
         float kart_up[3] = {
             -player->orientationMatrix[0][1], // Inverted X
@@ -171,8 +187,8 @@ void GameCamera::SetViewProjection() {
             player->orientationMatrix[2][1]
         };
         
-        LookAtToQuaternion(_camera->pos, kart_at, kart_up, q);
-        window->SetVRBaseTrackingSpace(_camera->pos, q);
+        LookAtToQuaternion(basePos, kart_at, kart_up, q);
+        window->SetVRBaseTrackingSpace(basePos, q);
     }
 
     // Calculate the camera lookAt (camera rotation)
