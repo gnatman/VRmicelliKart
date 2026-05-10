@@ -627,30 +627,47 @@ void PortMenu::AddVR() {
         .Options(CheckboxOptions().Tooltip("Allows rotating the VR view with Alt + Mouse, and moving with Arrow Keys."));
 
     AddWidget(path, "Performance Overlay", WIDGET_CVAR_CHECKBOX)
-        .CVar("gVR.PerformanceOverlay")
+        .CVar("gVRPerformanceOverlay")
         .Options(CheckboxOptions().Tooltip("Show VR frame timings and status."));
 
     AddSidebarEntry("VR", "Scale & View", 1);
     path.sidebarName = "Scale & View";
 
     AddWidget(path, "IPD Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.IPDScale")
+        .CVar("gVRIPDScale")
         .Options(FloatSliderOptions()
-            .Min(0.5f)
-            .Max(1.5f)
+            .Min(0.01f)
+            .Max(100.0f)
             .DefaultValue(1.0f)
-            .Tooltip("Scales the distance between eyes. Useful for adjusting perceived depth."));
+            .Tooltip("Scales the distance between eyes. Useful for adjusting perceived depth."))
+        .Callback([](WidgetInfo& info) {
+            SPDLOG_INFO("UI: Set {} to {}", info.cVar, CVarGetFloat(info.cVar, 1.0f));
+        });
+
+    AddWidget(path, "Reset VR Settings", WIDGET_BUTTON)
+        .Callback([](WidgetInfo& info) {
+            CVarClear("gVRIPDScale");
+            CVarClear("gVRWorldScale");
+            CVarClear("gVRSupersampling");
+            CVarClear("gVRMSAA");
+            CVarClear("gVRHUDDistance");
+            CVarClear("gVRHUDWidth");
+            spdlog::critical("VR CVars Cleared!");
+        });
 
     AddWidget(path, "World Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.WorldScale")
+        .CVar("gVRWorldScale")
         .Options(FloatSliderOptions()
             .Min(0.1f)
-            .Max(10.0f)
+            .Max(5000.0f)
             .DefaultValue(1.0f)
-            .Tooltip("Scales your physical movement in the game world. 1.0 is life-size."));
+            .Tooltip("Scales your physical movement in the game world. 1.0 is life-size."))
+        .Callback([](WidgetInfo& info) {
+            SPDLOG_INFO("UI: Set {} to {}", info.cVar, CVarGetFloat(info.cVar, 1.0f));
+        });
 
     AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.Supersampling")
+        .CVar("gVRSupersampling")
         .Options(FloatSliderOptions()
             .Min(0.5f)
             .Max(2.0f)
@@ -658,33 +675,41 @@ void PortMenu::AddVR() {
             .Tooltip("Multiplies the resolution of eye buffers. Requires restart or VR toggle to apply."));
 
     AddWidget(path, "MSAA (Eye Buffers): %d", WIDGET_CVAR_SLIDER_INT)
-        .CVar("gVR.MSAA")
+        .CVar("gVRMSAA")
         .Options(IntSliderOptions()
             .Min(1)
             .Max(8)
             .DefaultValue(1)
-            .Tooltip("Anti-aliasing for eye buffers. Requires restart or VR toggle to apply."));
+            .Tooltip("Anti-aliasing for eye buffers. Requires restart or VR toggle to apply."))
+        .Callback([](WidgetInfo& info) {
+            SPDLOG_INFO("UI: Set {} to {}", info.cVar, CVarGetInteger(info.cVar, 1));
+        });
 
     AddSidebarEntry("VR", "HUD", 1);
     path.sidebarName = "HUD";
 
     AddWidget(path, "HUD Distance: %.2fm", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.HUDDistance")
+        .CVar("gVRHUDDistance")
         .Options(FloatSliderOptions()
             .Min(0.5f)
             .Max(5.0f)
             .DefaultValue(1.5f)
-            .Tooltip("Distance of the 2D HUD from your head in meters."));
+            .Tooltip("Distance of the 2D HUD from your head in meters."))
+        .Callback([](WidgetInfo& info) {
+            SPDLOG_INFO("UI: Set {} to {}", info.cVar, CVarGetFloat(info.cVar, 1.5f));
+        });
 
     AddWidget(path, "HUD Width: %.2fm", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVR.HUDWidth")
+        .CVar("gVRHUDWidth")
         .Options(FloatSliderOptions()
             .Min(0.3f)
             .Max(3.0f)
             .DefaultValue(1.0f)
-            .Tooltip("Physical width of the 2D HUD quad in meters."));
+            .Tooltip("Physical width of the 2D HUD quad in meters."))
+        .Callback([](WidgetInfo& info) {
+            SPDLOG_INFO("UI: Set {} to {}", info.cVar, CVarGetFloat(info.cVar, 1.0f));
+        });
 }
-
 PortMenu::PortMenu(const std::string& consoleVariable, const std::string& name)
     : Menu(consoleVariable, name, 0, UIWidgets::Colors::LightBlue) {
 }

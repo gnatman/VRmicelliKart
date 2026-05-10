@@ -513,6 +513,7 @@ bool CVarSliderFloat(const char* label, const char* cvarName, const FloatSliderO
     bool dirty = false;
     float value = CVarGetFloat(cvarName, options.defaultValue);
     if (SliderFloat(label, &value, options)) {
+        SPDLOG_INFO("UI interaction: Setting {} to {}", cvarName, value);
         CVarSetFloat(cvarName, value);
         Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         dirty = true;
