@@ -13,6 +13,7 @@
 #include "engine/tracks/Track.h"
 #include "engine/tracks/KalimariDesert.h"
 #include "engine/tracks/ToadsTurnpike.h"
+#include "port/WheelManager.h"
 
 #ifdef __SWITCH__
 #include <ship/port/switch/SwitchImpl.h>
@@ -350,6 +351,13 @@ void PortMenu::AddSettings() {
         .CVar(CVAR_CONTROLLER_CONFIGURATION_WINDOW_OPEN)
         .WindowName("Input Editor")
         .Options(ButtonOptions().Tooltip("Enables the separate Bindings Window.").Size(Sizes::Inline));
+
+    path.sidebarName = "Racing Wheel";
+    AddSidebarEntry("Settings", "Racing Wheel", 1);
+    AddWidget(path, "Racing Wheel Settings", WIDGET_CUSTOM)
+        .CustomFunction([](WidgetInfo& info) {
+            WheelManager_DrawSettings();
+        });
 }
 int32_t motionBlurStrength;
 

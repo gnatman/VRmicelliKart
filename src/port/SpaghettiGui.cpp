@@ -19,6 +19,7 @@
 #if defined(__ANDROID__) || defined(__IOS__)
 #include "port/mobile/MobileImpl.h"
 #endif
+#include "WheelManager.h"
 
 #ifdef ENABLE_OPENGL
 #include <imgui_impl_opengl3.h>
@@ -152,6 +153,8 @@ void SpaghettiGui::DrawMenu() {
         windowIter.second->Update();
         windowIter.second->Draw();
     }
+
+
 
     ImGui::End();
 }

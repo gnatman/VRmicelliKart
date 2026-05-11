@@ -41,6 +41,8 @@
 #include "port/Engine.h"
 #include "engine/Matrix.h"
 
+#include "port/WheelManager.h"
+
 // Declarations (not in this file)
 void func_80091B78(void);
 
@@ -390,9 +392,11 @@ void update_controller(s32 index) {
 void read_controllers(void) {
     OSMesg msg;
 
+    WheelManager_Update();
     osContStartReadData(&gSIEventMesgQueue);
     // osRecvMesg(&gSIEventMesgQueue, &msg, OS_MESG_BLOCK);
     osContGetReadData(gControllerPads);
+    WheelManager_ProcessInput(&gControllerPads[0]);
     update_controller(0);
     update_controller(1);
     update_controller(2);
