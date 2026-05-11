@@ -1,6 +1,7 @@
 #include "PortMenu.h"
 #include "UIWidgets.h"
 #include "port/Game.h"
+#include "port/TelemetryManager.h"
 #include "ship/window/gui/GuiMenuBar.h"
 #include "ship/window/gui/GuiElement.h"
 #include <variant>
@@ -357,6 +358,13 @@ void PortMenu::AddSettings() {
     AddWidget(path, "Racing Wheel Settings", WIDGET_CUSTOM)
         .CustomFunction([](WidgetInfo& info) {
             WheelManager_DrawSettings();
+        });
+
+    path.sidebarName = "Telemetry";
+    AddSidebarEntry("Settings", "Telemetry", 1);
+    AddWidget(path, "Telemetry Settings", WIDGET_CUSTOM)
+        .CustomFunction([](WidgetInfo& info) {
+            TelemetryManager_DrawSettings();
         });
 }
 int32_t motionBlurStrength;

@@ -42,6 +42,7 @@
 #include "engine/Matrix.h"
 
 #include "port/WheelManager.h"
+#include "port/TelemetryManager.h"
 
 // Declarations (not in this file)
 void func_80091B78(void);
@@ -1175,6 +1176,7 @@ void thread5_iteration(void) {
     FB_CreateFramebuffers();
     clear_framebuffer(0); // Clear the framebuffer
     game_state_handler();
+    TelemetryManager_Update();
 
     // call_render_hook();
 

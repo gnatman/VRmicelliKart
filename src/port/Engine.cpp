@@ -28,6 +28,7 @@
 #include "ship/window/gui/resource/FontFactory.h"
 #include "libultraship/controller/controldeck/ControlDeck.h"
 #include "SpaghettiGui.h"
+#include "TelemetryManager.h"
 #include "WheelManager.h"
 
 #include "port/interpolation/FrameInterpolation.h"
@@ -347,6 +348,7 @@ int GameEngine::ShowYesNoBox(const char* title, const char* box) {
 void GameEngine::Create() {
     const auto instance = Instance = new GameEngine();
     WheelManager_Init();
+    TelemetryManager_Init();
     InitModsSystem();
     instance->gHMAS = new HMAS();
     instance->AudioInit();
