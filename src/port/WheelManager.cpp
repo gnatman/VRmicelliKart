@@ -53,8 +53,45 @@ void WheelManager::LoadSettings() {
         BTN_DUP, BTN_DDOWN, BTN_DLEFT, BTN_DRIGHT 
     };
     for (auto btn : buttons) {
-        std::string cvarName = StringHelper::Sprintf("gWheel.Button.%04X", btn);
-        mButtonMap[btn] = CVarGetInteger(cvarName.c_str(), -1);
+        // We now use "Btn" prefix to avoid JSON numeric key crashes
+        std::string cvarPrefix = StringHelper::Sprintf("gWheel.Button.Btn%04X", btn);
+        int mappingCount = CVarGetInteger((cvarPrefix + ".Count").c_str(), 0);
+        
+        mButtonMap[btn].clear();
+
+        if (mappingCount > 0) {
+            for (int i = 0; i < mappingCount; i++) {
+                std::string subPrefix = StringHelper::Sprintf("%s.Bind%d", cvarPrefix.c_str(), i);
+                MappingType type = (MappingType)CVarGetInteger((subPrefix + ".Type").c_str(), 0);
+                int index = CVarGetInteger((subPrefix + ".Index").c_str(), -1);
+                uint8_t value = (uint8_t)CVarGetInteger((subPrefix + ".Value").c_str(), 0);
+                if (type != MappingType::None) {
+                    mButtonMap[btn].push_back({ type, index, value });
+                }
+            }
+        } else {
+            // Check legacy / single-mapping CVars (including non-prefixed ones)
+            std::string legacyPrefix = StringHelper::Sprintf("gWheel.Button.%04X", btn);
+            int type = CVarGetInteger((cvarPrefix + ".Type").c_str(), 
+                       CVarGetInteger((legacyPrefix + ".Type").c_str(), 0));
+            
+            if (type == 1) { // Button
+                int idx = CVarGetInteger((cvarPrefix + ".Index").c_str(), 
+                          CVarGetInteger((legacyPrefix + ".Index").c_str(), -1));
+                mButtonMap[btn].push_back({ MappingType::Button, idx, 0 });
+            } else if (type == 2) { // Hat
+                int idx = CVarGetInteger((cvarPrefix + ".Index").c_str(), 
+                          CVarGetInteger((legacyPrefix + ".Index").c_str(), -1));
+                uint8_t val = (uint8_t)CVarGetInteger((cvarPrefix + ".Value").c_str(), 
+                                       CVarGetInteger((legacyPrefix + ".Value").c_str(), 0));
+                mButtonMap[btn].push_back({ MappingType::Hat, idx, val });
+            } else {
+                int legacyIdx = CVarGetInteger(cvarPrefix.c_str(), CVarGetInteger(legacyPrefix.c_str(), -1));
+                if (legacyIdx != -1) {
+                    mButtonMap[btn].push_back({ MappingType::Button, legacyIdx, 0 });
+                }
+            }
+        }
     }
 }
 
@@ -76,9 +113,53 @@ void WheelManager::SaveSettings() {
 
     CVarSetString("gWheel.JoystickGuid", mJoystickGuid.c_str());
 
-    for (auto const& [btn, sdlBtn] : mButtonMap) {
-        std::string cvarName = StringHelper::Sprintf("gWheel.Button.%04X", btn);
-        CVarSetInteger(cvarName.c_str(), sdlBtn);
+    // Safely clear legacy/numeric mapping CVars to prevent JSON unflattening crashes.
+    // We cannot use ClearBlock() here as it triggers a full config reload, reverting unsaved CVars.
+    std::vector<uint16_t> allBtns = { 
+        BTN_A, BTN_B, BTN_START, BTN_L, BTN_R, BTN_Z, 
+        BTN_CUP, BTN_CDOWN, BTN_CLEFT, BTN_CRIGHT,
+        BTN_DUP, BTN_DDOWN, BTN_DLEFT, BTN_DRIGHT 
+    };
+    for (auto btn : allBtns) {
+        std::string legacyPrefix = StringHelper::Sprintf("gWheel.Button.%04X", btn);
+        CVarClear(legacyPrefix.c_str());
+        CVarClear((legacyPrefix + ".Type").c_str());
+        CVarClear((legacyPrefix + ".Index").c_str());
+        CVarClear((legacyPrefix + ".Value").c_str());
+        CVarClear((legacyPrefix + ".Count").c_str());
+        for (int i = 0; i < 10; i++) { // Clear up to 10 potential numeric sub-mappings
+            std::string subPrefix = StringHelper::Sprintf("%s.%d", legacyPrefix.c_str(), i);
+            CVarClear((subPrefix + ".Type").c_str());
+            CVarClear((subPrefix + ".Index").c_str());
+            CVarClear((subPrefix + ".Value").c_str());
+        }
+    }
+
+    for (auto const& [btn, mappings] : mButtonMap) {
+        std::string cvarPrefix = StringHelper::Sprintf("gWheel.Button.Btn%04X", btn);
+        
+        // Clean up any previously saved prefixed sub-keys if we are shrinking the array
+        int oldCount = CVarGetInteger((cvarPrefix + ".Count").c_str(), 0);
+        for (int i = mappings.size(); i < oldCount; i++) {
+            std::string subPrefix = StringHelper::Sprintf("%s.Bind%d", cvarPrefix.c_str(), i);
+            CVarClear((subPrefix + ".Type").c_str());
+            CVarClear((subPrefix + ".Index").c_str());
+            CVarClear((subPrefix + ".Value").c_str());
+        }
+
+        if (mappings.empty()) {
+            CVarClear((cvarPrefix + ".Count").c_str());
+            continue;
+        }
+
+        CVarSetInteger((cvarPrefix + ".Count").c_str(), (int)mappings.size());
+        
+        for (int i = 0; i < mappings.size(); i++) {
+            std::string subPrefix = StringHelper::Sprintf("%s.Bind%d", cvarPrefix.c_str(), i);
+            CVarSetInteger((subPrefix + ".Type").c_str(), (int)mappings[i].type);
+            CVarSetInteger((subPrefix + ".Index").c_str(), mappings[i].index);
+            CVarSetInteger((subPrefix + ".Value").c_str(), mappings[i].hatValue);
+        }
     }
 
     Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
@@ -135,12 +216,46 @@ void WheelManager::Update() {
 
     // Check for mapping input
     if (mIsMappingButton) {
+        // 1. Check Buttons
         for (int i = 0; i < SDL_JoystickNumButtons(mJoystick); ++i) {
             if (SDL_JoystickGetButton(mJoystick, i)) {
-                mButtonMap[mMappingButtonBitmask] = i;
+                // Check if this mapping already exists for this button
+                bool exists = false;
+                for (const auto& m : mButtonMap[mMappingButtonBitmask]) {
+                    if (m.type == MappingType::Button && m.index == i) {
+                        exists = true;
+                        break;
+                    }
+                }
+                
+                if (!exists) {
+                    mButtonMap[mMappingButtonBitmask].push_back({ MappingType::Button, i, 0 });
+                    SaveSettings();
+                }
                 mIsMappingButton = false;
-                SaveSettings();
-                break;
+                return;
+            }
+        }
+
+        // 2. Check Hats (POV)
+        for (int i = 0; i < SDL_JoystickNumHats(mJoystick); ++i) {
+            uint8_t hatValue = SDL_JoystickGetHat(mJoystick, i);
+            if (hatValue != SDL_HAT_CENTERED) {
+                // Check if this mapping already exists
+                bool exists = false;
+                for (const auto& m : mButtonMap[mMappingButtonBitmask]) {
+                    if (m.type == MappingType::Hat && m.index == i && m.hatValue == hatValue) {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                if (!exists) {
+                    mButtonMap[mMappingButtonBitmask].push_back({ MappingType::Hat, i, hatValue });
+                    SaveSettings();
+                }
+                mIsMappingButton = false;
+                return;
             }
         }
     }
@@ -193,7 +308,18 @@ void WheelManager::ProcessInput(OSContPad* pad) {
         if (normalized > 1.0f) normalized = 1.0f;
         if (normalized < -1.0f) normalized = -1.0f;
         
-        pad->stick_x = (int8_t)(normalized * 127.0f);
+        int8_t wheel_stick_x = (int8_t)(normalized * 127.0f);
+
+        if (CVarGetInteger("gWheel.CombineInputs", 1)) {
+            // Combine with existing input (e.g. keyboard)
+            // We use the one with the greater absolute deflection
+            if (abs(wheel_stick_x) > abs(pad->stick_x)) {
+                pad->stick_x = wheel_stick_x;
+            }
+        } else {
+            // Traditional behavior: Wheel overrides everything
+            pad->stick_x = wheel_stick_x;
+        }
     }
 
     // Throttle (A button)
@@ -219,11 +345,20 @@ void WheelManager::ProcessInput(OSContPad* pad) {
         if (pressed) pad->button |= BTN_R;
     }
 
-    // Buttons
-    for (auto const& [btn, sdlBtn] : mButtonMap) {
-        if (sdlBtn != -1) {
-            if (SDL_JoystickGetButton(mJoystick, sdlBtn)) {
-                pad->button |= btn;
+    // Buttons & Hats
+    for (auto const& [btn, mappings] : mButtonMap) {
+        for (const auto& mapping : mappings) {
+            if (mapping.type == MappingType::Button && mapping.index != -1) {
+                if (SDL_JoystickGetButton(mJoystick, mapping.index)) {
+                    pad->button |= btn;
+                    break; // Action triggered, no need to check other mappings for THIS action
+                }
+            } else if (mapping.type == MappingType::Hat && mapping.index != -1) {
+                uint8_t state = SDL_JoystickGetHat(mJoystick, mapping.index);
+                if (state & mapping.hatValue) {
+                    pad->button |= btn;
+                    break;
+                }
             }
         }
     }
@@ -234,6 +369,11 @@ void WheelManager::DrawSettings() {
     if (ImGui::Checkbox("Enable Racing Wheel", &enabled)) {
         CVarSetInteger("gWheel.Enabled", enabled);
         SaveSettings();
+    }
+
+    if (enabled && !mJoystick) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), ICON_FA_EXCLAMATION_TRIANGLE " No Wheel Detected");
     }
 
     ImGui::Separator();
@@ -322,17 +462,46 @@ void WheelManager::DrawSettings() {
         auto DrawButtonMapping = [&](const char* label, uint16_t bitmask) {
             ImGui::PushID(label);
             ImGui::Text("%s:", label);
+            
+            auto& mappings = mButtonMap[bitmask];
+            
+            for (int i = 0; i < mappings.size(); i++) {
+                auto& mapping = mappings[i];
+                std::string btnText = "Unknown";
+                if (mapping.type == MappingType::Button) {
+                    btnText = StringHelper::Sprintf("Button %d", mapping.index);
+                } else if (mapping.type == MappingType::Hat) {
+                    std::string dir = "Unknown";
+                    if (mapping.hatValue & SDL_HAT_UP) dir = "Up";
+                    else if (mapping.hatValue & SDL_HAT_DOWN) dir = "Down";
+                    else if (mapping.hatValue & SDL_HAT_LEFT) dir = "Left";
+                    else if (mapping.hatValue & SDL_HAT_RIGHT) dir = "Right";
+                    btnText = StringHelper::Sprintf("POV %d %s", mapping.index, dir.c_str());
+                }
+
+                ImGui::SameLine();
+                ImGui::PushID(i);
+                if (ImGui::Button(StringHelper::Sprintf("%s ##clear", btnText.c_str()).c_str())) {
+                    mappings.erase(mappings.begin() + i);
+                    SaveSettings();
+                    ImGui::PopID();
+                    break; 
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Click to remove this mapping.");
+                }
+                ImGui::PopID();
+            }
+
             ImGui::SameLine();
-            int sdlBtn = mButtonMap[bitmask];
-            if (ImGui::Button(sdlBtn == -1 ? "None (Map)" : StringHelper::Sprintf("Button %d", sdlBtn).c_str())) {
+            if (ImGui::Button(StringHelper::Sprintf("+##add%04X", bitmask).c_str())) {
                 mIsMappingButton = true;
                 mMappingButtonBitmask = bitmask;
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear")) {
-                mButtonMap[bitmask] = -1;
-                SaveSettings();
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Add a new wheel mapping for this action.");
             }
+
             ImGui::PopID();
         };
 

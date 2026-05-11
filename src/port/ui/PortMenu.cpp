@@ -638,10 +638,6 @@ void PortMenu::AddVR() {
         .CVar("gVREnabled")
         .Options(CheckboxOptions().Tooltip("Master toggle for VR logic."));
 
-    AddWidget(path, "Enable Mock Pose (Mouse)", WIDGET_CVAR_CHECKBOX)
-        .CVar("gMockVREnabled")
-        .Options(CheckboxOptions().Tooltip("Allows rotating the VR view with Alt + Mouse, and moving with Arrow Keys."));
-
     AddWidget(path, "Performance Overlay", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRPerformanceOverlay")
         .Options(CheckboxOptions().Tooltip("Show VR frame timings and status."));
@@ -656,22 +652,6 @@ void PortMenu::AddVR() {
             .DefaultIndex(0)
             .Tooltip("Switch between Chase (behind character) and Cockpit (first-person) camera modes."));
 
-    AddWidget(path, "IPD Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVRIPDScale")
-        .Options(FloatSliderOptions()
-            .Min(0.5f)
-            .Max(1.5f)
-            .DefaultValue(1.0f)
-            .Tooltip("Scales the distance between eyes. Useful for adjusting perceived depth."));
-
-    AddWidget(path, "World Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
-        .CVar("gVRWorldScale")
-        .Options(FloatSliderOptions()
-            .Min(0.1f)
-            .Max(10.0f)
-            .DefaultValue(1.0f)
-            .Tooltip("Scales your physical movement in the game world. 1.0 is life-size."));
-
     AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRSupersampling")
         .Options(FloatSliderOptions()
@@ -679,14 +659,6 @@ void PortMenu::AddVR() {
             .Max(2.0f)
             .DefaultValue(1.0f)
             .Tooltip("Multiplies the resolution of eye buffers. Requires restart or VR toggle to apply."));
-
-    AddWidget(path, "MSAA (Eye Buffers): %d", WIDGET_CVAR_SLIDER_INT)
-        .CVar("gVRMSAA")
-        .Options(IntSliderOptions()
-            .Min(1)
-            .Max(8)
-            .DefaultValue(1)
-            .Tooltip("Anti-aliasing for eye buffers. Requires restart or VR toggle to apply."));
 
     AddSidebarEntry("VR", "HUD", 1);
     path.sidebarName = "HUD";

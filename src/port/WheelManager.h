@@ -54,7 +54,19 @@ private:
     float mBrakeThreshold = 0.5f;
     float mDriftThreshold = 0.5f;
 
-    std::unordered_map<uint16_t, int> mButtonMap; // N64 Button -> SDL Button Index
+    enum class MappingType {
+        None,
+        Button,
+        Hat
+    };
+
+    struct InputMapping {
+        MappingType type = MappingType::None;
+        int index = -1; // Button index or Hat index
+        uint8_t hatValue = 0; // SDL_HAT_UP, etc.
+    };
+
+    std::unordered_map<uint16_t, std::vector<InputMapping>> mButtonMap; // N64 Button -> List of Mappings
     
     // UI state
     bool mIsMappingButton = false;
