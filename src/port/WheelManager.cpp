@@ -5,6 +5,13 @@
 #include "ship/utils/StringHelper.h"
 #include <spdlog/spdlog.h>
 
+extern "C" {
+#include "common_structs.h"
+#include "defines.h"
+extern Player gPlayers[];
+extern s32 gGamestate;
+}
+
 WheelManager* WheelManager::mInstance = nullptr;
 
 WheelManager* WheelManager::GetInstance() {
@@ -121,17 +128,25 @@ void WheelManager::SaveSettings() {
         BTN_DUP, BTN_DDOWN, BTN_DLEFT, BTN_DRIGHT 
     };
     for (auto btn : allBtns) {
-        std::string legacyPrefix = StringHelper::Sprintf("gWheel.Button.%04X", btn);
-        CVarClear(legacyPrefix.c_str());
-        CVarClear((legacyPrefix + ".Type").c_str());
-        CVarClear((legacyPrefix + ".Index").c_str());
-        CVarClear((legacyPrefix + ".Value").c_str());
-        CVarClear((legacyPrefix + ".Count").c_str());
-        for (int i = 0; i < 10; i++) { // Clear up to 10 potential numeric sub-mappings
-            std::string subPrefix = StringHelper::Sprintf("%s.%d", legacyPrefix.c_str(), i);
-            CVarClear((subPrefix + ".Type").c_str());
-            CVarClear((subPrefix + ".Index").c_str());
-            CVarClear((subPrefix + ".Value").c_str());
+        // Clear all possible legacy naming variants to prevent unflattening crashes
+        std::vector<std::string> variants = {
+            StringHelper::Sprintf("gWheel.Button.%04X", btn), // Padded hex (e.g. 0020)
+            StringHelper::Sprintf("gWheel.Button.%X", btn),   // Unpadded hex (e.g. 20)
+            StringHelper::Sprintf("gWheel.Button.%d", btn)    // Decimal (e.g. 32)
+        };
+
+        for (const auto& legacyPrefix : variants) {
+            CVarClear(legacyPrefix.c_str());
+            CVarClear((legacyPrefix + ".Type").c_str());
+            CVarClear((legacyPrefix + ".Index").c_str());
+            CVarClear((legacyPrefix + ".Value").c_str());
+            CVarClear((legacyPrefix + ".Count").c_str());
+            for (int i = 0; i < 10; i++) { // Clear up to 10 potential numeric sub-mappings
+                std::string subPrefix = StringHelper::Sprintf("%s.%d", legacyPrefix.c_str(), i);
+                CVarClear((subPrefix + ".Type").c_str());
+                CVarClear((subPrefix + ".Index").c_str());
+                CVarClear((subPrefix + ".Value").c_str());
+            }
         }
     }
 
@@ -175,14 +190,159 @@ void WheelManager::OpenJoystick(int index) {
         SDL_JoystickGetGUIDString(guid, guidStr, sizeof(guidStr));
         mJoystickGuid = guidStr;
         SPDLOG_INFO("Opened Racing Wheel: {}", SDL_JoystickName(mJoystick));
+
+        if (SDL_JoystickIsHaptic(mJoystick)) {
+            mHaptic = SDL_HapticOpenFromJoystick(mJoystick);
+            if (mHaptic) {
+                if (SDL_HapticRumbleSupported(mHaptic)) {
+                    SDL_HapticRumbleInit(mHaptic);
+                    mHapticRumbleSupported = true;
+                }
+
+                SDL_HapticEffect effect;
+                memset(&effect, 0, sizeof(SDL_HapticEffect));
+                effect.type = SDL_HAPTIC_CONSTANT;
+                effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
+                effect.constant.direction.dir[0] = 1;
+                effect.constant.level = 0;
+                effect.constant.length = SDL_HAPTIC_INFINITY;
+                mConstantEffectId = SDL_HapticNewEffect(mHaptic, &effect);
+                if (mConstantEffectId != -1) {
+                    SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1);
+                }
+
+                memset(&effect, 0, sizeof(SDL_HapticEffect));
+                effect.type = SDL_HAPTIC_SINE;
+                effect.periodic.direction.type = SDL_HAPTIC_CARTESIAN;
+                effect.periodic.direction.dir[0] = 1;
+                effect.periodic.period = 50; // 50ms = 20Hz shake
+                effect.periodic.magnitude = 0;
+                effect.periodic.length = SDL_HAPTIC_INFINITY;
+                mSineEffectId = SDL_HapticNewEffect(mHaptic, &effect);
+                if (mSineEffectId != -1) {
+                    SDL_HapticRunEffect(mHaptic, mSineEffectId, 1);
+                }
+                
+                SPDLOG_INFO("Haptic Feedback Initialized!");
+            }
+        }
     }
 }
 
 void WheelManager::CloseJoystick() {
+    if (mHaptic) {
+        SDL_HapticClose(mHaptic);
+        mHaptic = nullptr;
+        mHapticRumbleSupported = false;
+        mConstantEffectId = -1;
+        mSineEffectId = -1;
+    }
     if (mJoystick) {
         SDL_JoystickClose(mJoystick);
         mJoystick = nullptr;
         mJoystickIndex = -1;
+    }
+}
+
+void WheelManager::UpdateFFB() {
+    if (!mHaptic) return;
+
+    if (gGamestate != 2) { // 2 = RACING
+        if (mConstantEffectId != -1) {
+            SDL_HapticEffect effect;
+            memset(&effect, 0, sizeof(SDL_HapticEffect));
+            effect.type = SDL_HAPTIC_CONSTANT;
+            effect.constant.level = 0;
+            effect.constant.length = SDL_HAPTIC_INFINITY;
+            SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
+        }
+        if (mSineEffectId != -1) {
+            SDL_HapticEffect effect;
+            memset(&effect, 0, sizeof(SDL_HapticEffect));
+            effect.type = SDL_HAPTIC_SINE;
+            effect.periodic.magnitude = 0;
+            effect.periodic.length = SDL_HAPTIC_INFINITY;
+            SDL_HapticUpdateEffect(mHaptic, mSineEffectId, &effect);
+        }
+        return;
+    }
+
+    Player* p = &gPlayers[0]; // Assuming local VR player is P1
+
+    int16_t constantForce = 0;
+    int16_t sineMagnitude = 0;
+
+    // 1. Auto-center based on speed and current wheel angle
+    if (mSteeringAxis != -1 && p->speed > 5.0f) {
+        int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
+        int32_t centered = (int32_t)raw - (int32_t)mSteeringCenter;
+        float speedFactor = p->speed / 60.0f; // Max speed approx 60
+        if (speedFactor > 1.0f) speedFactor = 1.0f;
+        
+        // Push back against the wheel
+        constantForce = (int16_t)(-centered * speedFactor * 0.3f);
+    }
+
+    // 2. Lateral G (Hopping and Drifting)
+    if ((p->effects & 0x10) || p->hopVerticalOffset > 0.0f) { // DRIFTING_EFFECT = 0x10
+        // Direction is based on turning state
+        if (p->kartProps & 0x2) { // RIGHT_TURN
+            constantForce += 15000;
+        } else if (p->kartProps & 0x4) { // LEFT_TURN
+            constantForce -= 15000;
+        }
+    }
+
+    // 3. Jolt (Hit by item / tumble)
+    // We check if the velocity changed drastically or if tumbled
+    static f32 lastSpeed = 0.0f;
+    if (lastSpeed - p->speed > 15.0f || (p->triggers & 0x01404106)) { // HIT_TRIGGERS
+        constantForce = (rand() % 2 == 0) ? 32767 : -32767;
+    }
+    lastSpeed = p->speed;
+
+    // 4. Shake (Spinning out)
+    if (p->kartProps & 0x4000 || p->triggers & 0x200000) { // DRIVING_SPINOUT or SPINOUT_TRIGGER
+        sineMagnitude = 30000;
+    }
+
+    // Update Constant Effect
+    if (mConstantEffectId != -1) {
+        SDL_HapticEffect effect;
+        memset(&effect, 0, sizeof(SDL_HapticEffect));
+        effect.type = SDL_HAPTIC_CONSTANT;
+        effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
+        effect.constant.direction.dir[0] = 1;
+        effect.constant.level = std::max(-32768, std::min(32767, (int)constantForce));
+        effect.constant.length = SDL_HAPTIC_INFINITY;
+        SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
+    }
+
+    // Update Sine Effect
+    if (mSineEffectId != -1) {
+        SDL_HapticEffect effect;
+        memset(&effect, 0, sizeof(SDL_HapticEffect));
+        effect.type = SDL_HAPTIC_SINE;
+        effect.periodic.direction.type = SDL_HAPTIC_CARTESIAN;
+        effect.periodic.direction.dir[0] = 1;
+        effect.periodic.period = 50;
+        effect.periodic.magnitude = sineMagnitude;
+        effect.periodic.length = SDL_HAPTIC_INFINITY;
+        SDL_HapticUpdateEffect(mHaptic, mSineEffectId, &effect);
+    }
+
+    // 5. Rumble (Offroad)
+    if (mHapticRumbleSupported) {
+        bool offroad = (p->tyres[0].surfaceType == 0x07 || // SAND_OFFROAD
+                        p->tyres[0].surfaceType == 0x0B || // SNOW_OFFROAD
+                        p->tyres[0].surfaceType == 0x0D || // DIRT_OFFROAD
+                        p->tyres[0].surfaceType == 0x08 || // GRASS
+                        p->tyres[0].surfaceType == 0xFD);  // OUT_OF_BOUNDS
+        
+        if (offroad && p->speed > 5.0f) {
+            float intensity = std::min(1.0f, p->speed / 40.0f);
+            SDL_HapticRumblePlay(mHaptic, intensity, 100);
+        }
     }
 }
 
@@ -362,6 +522,8 @@ void WheelManager::ProcessInput(OSContPad* pad) {
             }
         }
     }
+
+    UpdateFFB();
 }
 
 void WheelManager::DrawSettings() {

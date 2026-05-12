@@ -164,7 +164,7 @@ void GameCamera::SetViewProjection() {
             // Put the camera at the player position + vertical offset for head height.
             // We use the player's orientation matrix to keep the head height relative to the kart's tilt.
             // orientationMatrix[i][1] is the UP vector.
-            float headHeight = 5.0f;
+            float headHeight = CVarGetFloat("gVRHeadHeight", 5.0f);
             basePos[0] = player->pos[0] + player->orientationMatrix[0][1] * headHeight;
             basePos[1] = player->pos[1] + player->orientationMatrix[1][1] * headHeight;
             basePos[2] = player->pos[2] + player->orientationMatrix[2][1] * headHeight;

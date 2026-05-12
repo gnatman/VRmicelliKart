@@ -652,6 +652,15 @@ void PortMenu::AddVR() {
             .DefaultIndex(0)
             .Tooltip("Switch between Chase (behind character) and Cockpit (first-person) camera modes."));
 
+    AddWidget(path, "Head Height: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRHeadHeight")
+        .PreFunc([](WidgetInfo& info) { info.isHidden = CVarGetInteger("gVRCameraMode", 0) != 1; })
+        .Options(FloatSliderOptions()
+            .Min(0.0f)
+            .Max(20.0f)
+            .DefaultValue(5.0f)
+            .Tooltip("Adjust the vertical offset of the camera when in Cockpit mode."));
+
     AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRSupersampling")
         .Options(FloatSliderOptions()

@@ -30,9 +30,15 @@ private:
     int mJoystickIndex = -1;
     std::string mJoystickGuid;
 
+    SDL_Haptic* mHaptic = nullptr;
+    int mConstantEffectId = -1;
+    int mSineEffectId = -1;
+    bool mHapticRumbleSupported = false;
+
     void OpenJoystick(int index);
     void CloseJoystick();
     void RefreshJoysticks();
+    void UpdateFFB();
 
     // Mapping and Settings
     int mSteeringAxis = -1;
