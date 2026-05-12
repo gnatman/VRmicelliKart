@@ -17,6 +17,7 @@ private:
     static TelemetryManager* mInstance;
 
     bool mIsEnabled = false;
+    float mSpeedFactor = 3.6f;
     
     // Opaque handle for the networking implementation to avoid including winsock2.h here
     struct Impl;

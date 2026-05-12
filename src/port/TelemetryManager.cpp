@@ -24,6 +24,7 @@ extern "C" {
     extern s32 gGamestate;
     extern f32 gDeltaTime;
     extern f32 gCourseTimer;
+    extern f32 gTimePlayerLastTouchedFinishLine[];
 }
 
 #pragma comment(lib, "Ws2_32.lib")
@@ -35,6 +36,11 @@ struct TelemetryManager::Impl {
     uint64_t sessionId = 0;
     uint64_t packetCounter = 0;
     double sessionStartTime = 0;
+
+    float lastCourseTimer = 0;
+    int16_t lastLakituProps = 0;
+    float lastPos[3] = { 0, 0, 0 };
+    uint32_t discontinuityCounter = 0;
 };
 
 TelemetryManager* TelemetryManager::mInstance = nullptr;
@@ -82,6 +88,7 @@ void TelemetryManager::Init() {
 
 void TelemetryManager::LoadSettings() {
     mIsEnabled = CVarGetInteger("gTelemetry.Enabled", 0);
+    mSpeedFactor = CVarGetFloat("gTelemetry.SpeedFactor", 3.6f);
     std::string ip = CVarGetString("gTelemetry.IP", "127.0.0.1");
     int port = CVarGetInteger("gTelemetry.Port", 20777);
 
@@ -106,8 +113,41 @@ void TelemetryManager::Update() {
     }
 
     Player* p = &gPlayers[0];
-    static float prevLocalVel[3] = {0, 0, 0};
-    
+    static float prevLocalVel[3] = { 0, 0, 0 };
+
+    // Detect discontinuities (teleports, resets, Lakitu)
+    bool discontinuity = false;
+
+    // 1. Race Restart / Reset
+    if (gCourseTimer < pImpl->lastCourseTimer) {
+        discontinuity = true;
+    }
+
+    // 2. Lakitu Drop (HELD_BY_LAKITU is 0x2)
+    if ((pImpl->lastLakituProps & 0x02) && !(p->lakituProps & 0x02)) {
+        discontinuity = true;
+    }
+
+    // 3. Large Position Jump (Threshold: 500 units)
+    float dx = p->pos[0] - pImpl->lastPos[0];
+    float dy = p->pos[1] - pImpl->lastPos[1];
+    float dz = p->pos[2] - pImpl->lastPos[2];
+    float distSq = dx * dx + dy * dy + dz * dz;
+    if (distSq > (500.0f * 500.0f)) {
+        discontinuity = true;
+    }
+
+    if (discontinuity) {
+        pImpl->discontinuityCounter++;
+    }
+
+    // Update tracking for next frame
+    pImpl->lastCourseTimer = gCourseTimer;
+    pImpl->lastLakituProps = p->lakituProps;
+    pImpl->lastPos[0] = p->pos[0];
+    pImpl->lastPos[1] = p->pos[1];
+    pImpl->lastPos[2] = p->pos[2];
+
     TelemetryPacket packet{};
     packet.GameSignature = TELEMETRY_GAME_SIGNATURE;
     packet.TelemetrySignature = TELEMETRY_PROTOCOL_SIGNATURE;
@@ -125,7 +165,7 @@ void TelemetryManager::Update() {
     packet.IsAIInControl = 0;
     packet.IsSpectator = 0;
     packet.SessionTimeSeconds = gCourseTimer;
-    packet.PhysicsDiscontinuityCounter = 0;
+    packet.PhysicsDiscontinuityCounter = pImpl->discontinuityCounter;
 
     // Orientation (s16 binangles to Degrees)
     // 0-65535 maps to 0-360
@@ -165,10 +205,16 @@ void TelemetryManager::Update() {
     packet.VehiclePositionNorth = (double)-p->pos[2]; // N64 Z is South
 
     // Race State
-    packet.GroundSpeedKmh = p->speed * 3.6f; // Adjust factor if needed
+    packet.GroundSpeedKmh = p->speed * mSpeedFactor;
     packet.CompletedLaps = (uint32_t)p->lapCount;
     packet.RacePosition = p->currentRank;
-    packet.CurrentLapTime = 0; // TBD if available
+    
+    if (gGamestate == RACING) {
+        packet.CurrentLapTime = std::max(0.0, (double)gCourseTimer - gTimePlayerLastTouchedFinishLine[0]);
+    } else {
+        packet.CurrentLapTime = 0;
+    }
+    
     packet.IsRaceActive = (gGamestate == RACING);
 
     // Events
@@ -208,6 +254,12 @@ void TelemetryManager::DrawSettings() {
         }
         
         ImGui::TextDisabled("Default Port: 20777");
+
+        if (ImGui::InputFloat("Speed Scaling Factor", &mSpeedFactor, 0.1f, 1.0f, "%.2f")) {
+            CVarSetFloat("gTelemetry.SpeedFactor", mSpeedFactor);
+            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+        ImGui::TextDisabled("MK64 internal speed * this factor = GroundSpeedKmh");
     }
 }
 
