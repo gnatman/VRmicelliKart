@@ -116,6 +116,8 @@ void WheelManager::SaveSettings() {
     CVarSetFloat("gWheel.SteeringSensitivity", mSteeringSensitivity);
     CVarSetFloat("gWheel.SteeringDeadzone", mSteeringDeadzone);
     CVarSetFloat("gWheel.SteeringLinearity", mSteeringLinearity);
+    CVarSetFloat("gWheel.SteeringSaturation", mSteeringSaturation);
+    CVarSetFloat("gWheel.SteeringSCurve", mSteeringSCurve);
     CVarSetInteger("gWheel.SteeringCenter", mSteeringCenter);
 
     CVarSetString("gWheel.JoystickGuid", mJoystickGuid.c_str());
@@ -448,6 +450,11 @@ void WheelManager::ProcessInput(OSContPad* pad) {
         float normalized = (float)centered / 32768.0f;
         
         if (mSteeringInvert) normalized = -normalized;
+
+        // Apply Saturation (Steering Lock)
+        normalized /= mSteeringSaturation;
+        if (normalized > 1.0f) normalized = 1.0f;
+        if (normalized < -1.0f) normalized = -1.0f;
         
         // Deadzone
         if (abs(normalized) < mSteeringDeadzone) {
@@ -456,9 +463,20 @@ void WheelManager::ProcessInput(OSContPad* pad) {
             normalized = (normalized > 0 ? 1.0f : -1.0f) * (abs(normalized) - mSteeringDeadzone) / (1.0f - mSteeringDeadzone);
         }
         
-        // Linearity (Gamma Curve)
+        // Linearity & S-Curve Blend
         if (normalized != 0.0f) {
-            normalized = (normalized > 0 ? 1.0f : -1.0f) * pow(abs(normalized), mSteeringLinearity);
+            float absNorm = abs(normalized);
+            
+            // Standard Linearity (Gamma)
+            float linearVal = pow(absNorm, mSteeringLinearity);
+            
+            // Arcade S-Curve: smoothstep 3x^2 - 2x^3
+            float sCurveVal = absNorm * absNorm * (3.0f - 2.0f * absNorm);
+
+            // Blend between them based on mSteeringSCurve (0.0 to 1.0)
+            float finalVal = (linearVal * (1.0f - mSteeringSCurve)) + (sCurveVal * mSteeringSCurve);
+
+            normalized = (normalized > 0 ? 1.0f : -1.0f) * finalVal;
         }
         
         // Sensitivity
@@ -539,6 +557,17 @@ void WheelManager::DrawSettings() {
     }
 
     ImGui::Separator();
+    
+    if (ImGui::SliderInt("Force Feedback Gain", &mFFBMasterGain, 0, 100, "%d%%")) {
+        if (mHaptic) SDL_HapticSetGain(mHaptic, mFFBMasterGain);
+        SaveSettings();
+    }
+    if (!mHaptic && mJoystick) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(Hardware Not Supported)");
+    }
+
+    ImGui::Separator();
 
     if (ImGui::Button("Refresh Joysticks")) {
         RefreshJoysticks();
@@ -604,7 +633,12 @@ void WheelManager::DrawSettings() {
 
             if (ImGui::SliderFloat("Sensitivity", &mSteeringSensitivity, 0.1f, 3.0f, "%.2f")) SaveSettings();
             if (ImGui::SliderFloat("Deadzone", &mSteeringDeadzone, 0.0f, 0.5f, "%.2f")) SaveSettings();
+            if (ImGui::SliderFloat("Saturation (Steering Lock)", &mSteeringSaturation, 0.1f, 1.0f, "%.2f")) SaveSettings();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lower values mean less physical wheel rotation is needed to turn 100%. (e.g. 0.5 = half turn is full lock)");
+            
             if (ImGui::SliderFloat("Linearity", &mSteeringLinearity, 0.5f, 3.0f, "%.2f")) SaveSettings();
+            if (ImGui::SliderFloat("Arcade S-Curve Blend", &mSteeringSCurve, 0.0f, 1.0f, "%.2f")) SaveSettings();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("0.0 = Linear/Gamma, 1.0 = Snappy Arcade S-Curve (Gentle center, aggressive turn).");
             
             // Visualizer
             int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);

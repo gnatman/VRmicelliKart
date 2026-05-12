@@ -34,6 +34,7 @@ private:
     int mConstantEffectId = -1;
     int mSineEffectId = -1;
     bool mHapticRumbleSupported = false;
+    int mFFBMasterGain = 100;
 
     void OpenJoystick(int index);
     void CloseJoystick();
@@ -54,6 +55,8 @@ private:
     float mSteeringSensitivity = 1.0f;
     float mSteeringDeadzone = 0.0f;
     float mSteeringLinearity = 1.0f;
+    float mSteeringSaturation = 1.0f;
+    float mSteeringSCurve = 0.0f;
     int16_t mSteeringCenter = 0;
     
     float mThrottleThreshold = 0.5f;
