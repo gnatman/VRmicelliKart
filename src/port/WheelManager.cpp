@@ -47,10 +47,13 @@ void WheelManager::LoadSettings() {
     mSteeringSensitivity = CVarGetFloat("gWheel.SteeringSensitivity", 1.0f);
     mSteeringDeadzone = CVarGetFloat("gWheel.SteeringDeadzone", 0.0f);
     mSteeringLinearity = CVarGetFloat("gWheel.SteeringLinearity", 1.0f);
+    mSteeringSaturation = CVarGetFloat("gWheel.SteeringSaturation", 1.0f);
+    mSteeringSCurve = CVarGetFloat("gWheel.SteeringSCurve", 0.0f);
     mSteeringCenter = CVarGetInteger("gWheel.SteeringCenter", 0);
     mThrottleThreshold = CVarGetFloat("gWheel.ThrottleThreshold", 0.5f);
     mBrakeThreshold = CVarGetFloat("gWheel.BrakeThreshold", 0.5f);
     mDriftThreshold = CVarGetFloat("gWheel.DriftThreshold", 0.5f);
+    mFFBMasterGain = CVarGetInteger("gWheel.FFBMasterGain", 100);
 
     mJoystickGuid = CVarGetString("gWheel.JoystickGuid", "");
 
@@ -196,9 +199,28 @@ void WheelManager::OpenJoystick(int index) {
         if (SDL_JoystickIsHaptic(mJoystick)) {
             mHaptic = SDL_HapticOpenFromJoystick(mJoystick);
             if (mHaptic) {
+                unsigned int features = SDL_HapticQuery(mHaptic);
+                SPDLOG_INFO("Haptic Features: 0x{:04X}", features);
+                if (features & SDL_HAPTIC_CONSTANT) SPDLOG_INFO(" - Supports CONSTANT");
+                if (features & SDL_HAPTIC_SINE) SPDLOG_INFO(" - Supports SINE");
+                if (features & SDL_HAPTIC_TRIANGLE) SPDLOG_INFO(" - Supports TRIANGLE");
+                if (features & SDL_HAPTIC_SPRING) SPDLOG_INFO(" - Supports SPRING");
+                if (features & SDL_HAPTIC_DAMPER) SPDLOG_INFO(" - Supports DAMPER");
+                if (features & SDL_HAPTIC_INERTIA) SPDLOG_INFO(" - Supports INERTIA");
+                if (features & SDL_HAPTIC_FRICTION) SPDLOG_INFO(" - Supports FRICTION");
+                if (features & SDL_HAPTIC_CUSTOM) SPDLOG_INFO(" - Supports CUSTOM");
+                if (features & SDL_HAPTIC_GAIN) SPDLOG_INFO(" - Supports GAIN");
+                if (features & SDL_HAPTIC_AUTOCENTER) SPDLOG_INFO(" - Supports AUTOCENTER");
+
                 if (SDL_HapticRumbleSupported(mHaptic)) {
-                    SDL_HapticRumbleInit(mHaptic);
-                    mHapticRumbleSupported = true;
+                    if (SDL_HapticRumbleInit(mHaptic) == 0) {
+                        mHapticRumbleSupported = true;
+                        SPDLOG_INFO(" - Rumble Initialized successfully");
+                    } else {
+                        SPDLOG_ERROR(" - RumbleInit failed: {}", SDL_GetError());
+                    }
+                } else {
+                    SPDLOG_INFO(" - Rumble NOT supported");
                 }
 
                 SDL_HapticEffect effect;
@@ -210,7 +232,13 @@ void WheelManager::OpenJoystick(int index) {
                 effect.constant.length = SDL_HAPTIC_INFINITY;
                 mConstantEffectId = SDL_HapticNewEffect(mHaptic, &effect);
                 if (mConstantEffectId != -1) {
-                    SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1);
+                    if (SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1) != 0) {
+                        SPDLOG_ERROR("Failed to run CONSTANT effect: {}", SDL_GetError());
+                    } else {
+                        SPDLOG_INFO("CONSTANT effect created and running.");
+                    }
+                } else {
+                    SPDLOG_ERROR("Failed to create CONSTANT effect: {}", SDL_GetError());
                 }
 
                 memset(&effect, 0, sizeof(SDL_HapticEffect));
@@ -222,11 +250,21 @@ void WheelManager::OpenJoystick(int index) {
                 effect.periodic.length = SDL_HAPTIC_INFINITY;
                 mSineEffectId = SDL_HapticNewEffect(mHaptic, &effect);
                 if (mSineEffectId != -1) {
-                    SDL_HapticRunEffect(mHaptic, mSineEffectId, 1);
+                    if (SDL_HapticRunEffect(mHaptic, mSineEffectId, 1) != 0) {
+                        SPDLOG_ERROR("Failed to run SINE effect: {}", SDL_GetError());
+                    } else {
+                        SPDLOG_INFO("SINE effect created and running.");
+                    }
+                } else {
+                    SPDLOG_ERROR("Failed to create SINE effect: {}", SDL_GetError());
                 }
                 
-                SPDLOG_INFO("Haptic Feedback Initialized!");
+                SPDLOG_INFO("Haptic Feedback Initialization Attempt Complete!");
+            } else {
+                SPDLOG_ERROR("SDL_HapticOpenFromJoystick failed: {}", SDL_GetError());
             }
+        } else {
+            SPDLOG_WARN("SDL_JoystickIsHaptic returned false for this device. Error: {}", SDL_GetError());
         }
     }
 }
