@@ -23,6 +23,7 @@
 #include "port/Game.h"
 #include "src/enhancements/moon_jump.h"
 #include "engine/Matrix.h"
+#include "port/WheelManager.h"
 
 extern s32 D_8018D168;
 
@@ -3637,7 +3638,14 @@ void func_80033AE0(Player* player, struct Controller* controller, s8 arg2) {
         player->kartProps &= ~(LEFT_TURN | RIGHT_TURN);
     }
     sp2E4 = player->unk_07C;
-    temp_v0_3 = func_80038534(controller);
+    // Native Wheel: bypass N64 stick deadzone/clamp pipeline entirely
+    if (WheelManager_IsNativeSteerActive() && (player->type & PLAYER_HUMAN) && arg2 == 0) {
+        float nativeSteer = WheelManager_GetNativeSteer();
+        // Scale to the game's internal ±53 range with full float precision
+        temp_v0_3 = (s16)(nativeSteer * 53.0f);
+    } else {
+        temp_v0_3 = func_80038534(controller);
+    }
     if (((player->kartProps & BACK_UP) == BACK_UP) || ((player->kartProps & MOVE_BACKWARDS) == MOVE_BACKWARDS)) {
         temp_v0_3 = -temp_v0_3;
     }
@@ -3646,7 +3654,11 @@ void func_80033AE0(Player* player, struct Controller* controller, s8 arg2) {
     sp2D0 = sp2D0 >> 16;
     player->unk_0FA = (s16) sp2D0;
     if (((sp2D0 >= 0x5A) || (sp2D0 < (-0x59))) && (!(player->kartProps & DRIVING_SPINOUT))) {
-        if ((((((!(player->effects & DRIFTING_EFFECT)) && (gCCSelection == CC_150)) && (gModeSelection != BATTLE)) &&
+        // Native Wheel: disable spinout-on-jerk — physical wheel rotation is inherently smooth
+        // and doesn't produce the sudden digital jumps this mechanic was designed to punish
+        int wheelActive = WheelManager_IsNativeSteerActive() && (player->type & PLAYER_HUMAN) && arg2 == 0;
+        if (!wheelActive &&
+            (((((!(player->effects & DRIFTING_EFFECT)) && (gCCSelection == CC_150)) && (gModeSelection != BATTLE)) &&
               (!(player->effects & 8))) &&
              (((player->speed / 18.0f) * 216.0f) >= 40.0f)) &&
             (player->driftDuration == 0)) {
@@ -3711,6 +3723,15 @@ void func_80033AE0(Player* player, struct Controller* controller, s8 arg2) {
             sp2C8 *= 1.05;
             sp2CC *= 1.05;
         }
+    }
+    // Native Wheel: reduce slew-rate cascade by 75% (4x faster transitions)
+    // Physical wheel bearings and spring return provide inherently smooth input
+    // that doesn't need the heavy digital jitter filtering the N64 stick requires
+    if (WheelManager_IsNativeSteerActive() && (player->type & PLAYER_HUMAN) && arg2 == 0) {
+        sp2C8 = sp2C8 / 4;
+        sp2CC = sp2CC / 4;
+        if (sp2C8 < 1) sp2C8 = 1;
+        if (sp2CC < 1) sp2CC = 1;
     }
     func_80033884(player, &sp2D0, &sp2E4, player->unk_07C, 0x0000005A, 0x78000 / sp2C8, 0x000001C2);
     func_80033884(player, &sp2D0, &sp2E4, player->unk_07C, 0x00000059, 0x76000 / sp2C8, 0x000001B8);
@@ -3802,107 +3823,236 @@ void func_80033AE0(Player* player, struct Controller* controller, s8 arg2) {
     func_80033A40(player, &sp2D0, &sp2E4, player->unk_07C, 2, 0x6000 / sp2CC, 1.9f);
     func_80033A40(player, &sp2D0, &sp2E4, player->unk_07C, 1, 0x5000 / sp2CC, 1.9f);
     func_80033A40(player, &sp2D0, &sp2E4, player->unk_07C, 0, 0 / sp2CC, 1.9f);
-    if ((player->effects & DRIFTING_EFFECT) == DRIFTING_EFFECT) {
-        var_f2_2 = (f32) (((s32) (sp2E4 >> 16)) / 8);
-    } else if (((player->speed / 18.0f) * 216.0f) <= 25.0f) {
-        var_f2_2 = (f32) ((sp2E4 >> 16) / 12);
-    } else {
-        var_f2_2 = ((f32) (sp2E4 >> 0x10)) / (8.0f + (player->currentSpeed / 50.0f));
-    }
-    if (var_f2_2 < 0.0f) {
-        var_f2_2 = -var_f2_2;
-    }
-    if ((player->effects & 0x20) == 0x20) {
-        var_f2_2 = var_f2_2 * (sp44[((s16) ((player->speed / 18.0f) * 216.0f)) + 10] * 1.5f);
-    } else if ((player->effects & DRIFTING_EFFECT) == DRIFTING_EFFECT) {
-        var_f2_2 = var_f2_2 * sp44[(s16) ((player->speed / 18.0f) * 216.0f)];
-    } else {
-        var_f2_2 = var_f2_2 * (sp44[(s16) ((player->speed / 18.0f) * 216.0f)] * 1.5f);
-    }
-    player->unk_07C = sp2E4;
-    if (player->unk_10C != 0) {
-        func_8002BD58(player);
-    }
-    player->effects &= 0xDFFFFFFF;
-    if (((s32) player->tyres[BACK_RIGHT].surfaceType) > 0xE) {
-        var_f12 = var_f12;
-    } else {
-        var_f12 += D_800E3410[player->characterId][player->tyres[BACK_RIGHT].surfaceType];
-    }
-    if (((s32) player->tyres[BACK_LEFT].surfaceType) < 0xF) {
-        var_f12 += D_800E3410[player->characterId][player->tyres[BACK_LEFT].surfaceType];
-    }
-    if (((player->effects & 2) != 2) && ((player->effects & DRIFTING_EFFECT) != DRIFTING_EFFECT)) {
-        if ((player->effects & 0x20) == 0x20) {
-            player->unk_078 = (s16) ((s32) (((f32) ((((s32) player->unk_07C) >> 0x10) * 5)) * var_f2_2));
+
+    // =========================================================================
+    // NATIVE WHEEL: Full physics override (Approach B)
+    // Replaces the N64 stick's speed-dependent damping, response curve, and
+    // angular velocity calculation with a sim-like steering model.
+    // =========================================================================
+    if (WheelManager_IsNativeSteerActive() && (player->type & PLAYER_HUMAN) && arg2 == 0) {
+        // Smoothed steering position from the slew-rate cascade
+        s16 smoothedSteer = (s16)(sp2E4 >> 16);
+        f32 absSteer = (f32)(smoothedSteer < 0 ? -smoothedSteer : smoothedSteer);
+        f32 speedKmh = (player->speed / 18.0f) * 216.0f;
+
+        // --- Wheel speed-dependent damping ---
+        // Gentler than N64's divisor of (8 + speed/50). More linear ramp that
+        // preserves steering authority at high speed while still being stable.
+        f32 wheelDamp;
+        if (speedKmh <= 5.0f) {
+            wheelDamp = 1.0f;
+        } else if (speedKmh <= 80.0f) {
+            // Linear ramp: 1.0 at 5 km/h → 0.55 at 80 km/h
+            wheelDamp = 1.0f - (speedKmh - 5.0f) * 0.006f;
         } else {
-            if ((player->effects & 0x1) != 0x1) {
-                if (((player->unk_07C >> 16) >= 45) || ((player->unk_07C >> 16) <= (-45))) {
-                    player->unk_078 = ((player->unk_07C >> 16) * (var_f2_2 + (var_f2_2 * var_f12))) *
-                                      (0.15 + gKartHandlingTable[player->characterId]);
+            // Slower ramp above 80 km/h, floor at 0.30
+            wheelDamp = 0.55f - (speedKmh - 80.0f) * 0.002f;
+            if (wheelDamp < 0.30f) wheelDamp = 0.30f;
+        }
+
+        // --- Wheel response curve ---
+        // Smooth cubic: more gentle near center, more aggressive near lock.
+        // Replaces the N64's sp44[156] empirical lookup table.
+        f32 t = absSteer / 53.0f; // Normalize to [0, 1]
+        f32 wheelCurve = t * t * (3.0f - 2.0f * t); // smoothstep
+
+        // Surface friction modifier (same as stock)
+        f32 surfaceMod = 0.0f;
+        if (((s32) player->tyres[BACK_RIGHT].surfaceType) <= 0xE) {
+            surfaceMod += D_800E3410[player->characterId][player->tyres[BACK_RIGHT].surfaceType];
+        }
+        if (((s32) player->tyres[BACK_LEFT].surfaceType) < 0xF) {
+            surfaceMod += D_800E3410[player->characterId][player->tyres[BACK_LEFT].surfaceType];
+        }
+
+        player->unk_07C = sp2E4;
+        if (player->unk_10C != 0) {
+            func_8002BD58(player);
+        }
+        player->effects &= 0xDFFFFFFF;
+
+        // --- Angular velocity calculation ---
+        if (((player->effects & 2) != 2) && ((player->effects & DRIFTING_EFFECT) != DRIFTING_EFFECT)) {
+            // NORMAL STEERING (not drifting, not hopping)
+            if ((player->effects & 0x20) == 0x20) {
+                // Burnout/donut mode
+                player->unk_078 = (s16)((s32)(((f32)(smoothedSteer * 5)) * wheelDamp * wheelCurve));
+            } else if ((player->effects & 0x1) != 0x1) {
+                // Standard driving — apply character handling
+                f32 steerMag = (f32)smoothedSteer * wheelDamp * wheelCurve * (1.0f + surfaceMod);
+                // Progressive handling bonus for large wheel deflections
+                if (absSteer >= 35.0f) {
+                    player->unk_078 = steerMag * (0.15f + gKartHandlingTable[player->characterId]);
                 } else {
-                    player->unk_078 = ((player->unk_07C >> 16) * (var_f2_2 + (var_f2_2 * var_f12))) *
-                                      gKartHandlingTable[player->characterId];
+                    player->unk_078 = steerMag * gKartHandlingTable[player->characterId];
                 }
             } else {
-                if ((((player->speed / 18.0f) * 216.0f) >= 0.0f) && (((player->speed / 18.0f) * 216.0f) < 8.0f)) {
-                    player->unk_078 = (player->unk_07C >> 16) * (var_f2_2 + (var_f2_2 * var_f12));
-                }
-                if ((((player->speed / 18.0f) * 216.0f) >= 8.0f) && (((player->speed / 18.0f) * 216.0f) < 65.0f)) {
-                    player->unk_078 = (player->unk_07C >> 16) * ((var_f2_2 + 1.5) + (var_f2_2 * var_f12));
-                }
-                if (((player->speed / 18.0f) * 216.0f) >= 65.0f) {
-                    player->unk_078 = (player->unk_07C >> 16) * ((var_f2_2 + 1.6) + (var_f2_2 * var_f12));
+                // Effect 0x1 (star/boost) — use simpler calculation
+                f32 steerMag = (f32)smoothedSteer * wheelDamp * (1.0f + surfaceMod);
+                if (speedKmh < 8.0f) {
+                    player->unk_078 = steerMag;
+                } else if (speedKmh < 65.0f) {
+                    player->unk_078 = steerMag * 1.3f;
+                } else {
+                    player->unk_078 = steerMag * 1.4f;
                 }
             }
             player->unk_228 = 0;
             if (player->driftState < 2) {
                 player->driftState = 0;
             }
-        }
-    } else if (((player->effects & 8) != 8) && ((player->effects & 2) != 2)) {
-        if ((((s16) player->unk_0C0) / 182) > 0) {
-            var_s1_2 = (((s32) (((player->unk_07C >> 0x10) * 0xD) + 0x2B1)) / 106) + 0x28;
-            if ((player->unk_07C >> 0x10) < (-0x27)) {
-                player->effects = player->effects | 0x20000000;
-                if ((player->unk_07C >> 0x10) < (-0x31)) {
-                    player->effects |= 0x20000000;
+        } else if (((player->effects & 8) != 8) && ((player->effects & 2) != 2)) {
+            // DRIFTING — keep the same bias/counter-steer formula but with
+            // wider thresholds for wheel precision
+            if ((((s16) player->unk_0C0) / 182) > 0) {
+                // Drifting right
+                var_s1_2 = (((s32) (((player->unk_07C >> 0x10) * 0xD) + 0x2B1)) / 106) + 0x28;
+                // Wider counter-steer detection for wheel (was -0x27, now -0x20)
+                if ((player->unk_07C >> 0x10) < (-0x20)) {
+                    player->effects = player->effects | 0x20000000;
                 }
-            }
-            func_8002A8A4(player, arg2);
-        } else {
-            var_s1_2 = (((s32) (((player->unk_07C >> 0x10) * 0xD) + 0x2B1)) / 106) - 0x35;
-            if ((player->unk_07C >> 0x10) >= 0x28) {
-                player->effects = player->effects | 0x20000000;
-                if ((player->unk_07C >> 0x10) < (-0x31)) {
-                    player->effects |= 0x20000000;
+                func_8002A8A4(player, arg2);
+            } else {
+                // Drifting left
+                var_s1_2 = (((s32) (((player->unk_07C >> 0x10) * 0xD) + 0x2B1)) / 106) - 0x35;
+                // Wider counter-steer detection for wheel (was 0x28, now 0x20)
+                if ((player->unk_07C >> 0x10) >= 0x20) {
+                    player->effects = player->effects | 0x20000000;
                 }
+                func_8002A8A4(player, arg2);
             }
-            func_8002A8A4(player, arg2);
-        }
-        if ((((player->speed / 18.0f) * 216.0f) >= 0.0f) && (((player->speed / 18.0f) * 216.0f) < 8.0f)) {
-            player->unk_078 = (s16) ((s32) (var_s1_2 * ((var_f2_2 + 2.0f) + (var_f2_2 * var_f12))));
-        }
-        if ((((player->speed / 18.0f) * 216.0f) >= 8.0f) && (((player->speed / 18.0f) * 216.0f) < 65.0f)) {
-            player->unk_078 = var_s1_2 * ((var_f2_2 + 3) + (var_f2_2 * var_f12));
-        }
-        if (((player->speed / 18.0f) * 216.0f) >= 65.0f) {
-            player->unk_078 = var_s1_2 * ((((f64) var_f2_2) + 3.5) + (var_f2_2 * var_f12));
-        }
-        if ((player->effects & 0x20000000) == 0x20000000) {
-            player->unk_078 *= 0.9;
+            // Drift turn rate with wheel damping
+            f32 driftRate = (f32)var_s1_2 * wheelDamp * (1.0f + surfaceMod);
+            if (speedKmh < 8.0f) {
+                player->unk_078 = (s16)((s32)(driftRate * 2.5f));
+            } else if (speedKmh < 65.0f) {
+                player->unk_078 = driftRate * 3.5f;
+            } else {
+                player->unk_078 = driftRate * 4.0f;
+            }
+            if ((player->effects & 0x20000000) == 0x20000000) {
+                player->unk_078 *= 0.9;
+            } else {
+                player->unk_078 *= 0.65;
+            }
         } else {
-            player->unk_078 *= 0.65;
+            // Hopping/airborne — simplified
+            var_s1_2 = (s16)(((s32) player->unk_07C) >> 16);
+            if (temp_v0_3 == 0) {
+                var_s1_2 = 0;
+            }
+            if (speedKmh <= 5.0f) {
+                player->unk_078 = (s16)((s32)(((f32) var_s1_2) * (wheelDamp + 6.0f)));
+            } else {
+                player->unk_078 = ((s16) var_s1_2) * (wheelDamp + 1.5f);
+            }
         }
     } else {
-        var_s1_2 = (s16) (((s32) player->unk_07C) >> 16);
-        if (temp_v0_3 == 0) {
-            var_s1_2 = 0;
-        }
-        if (((player->speed / 18.0f) * 216.0f) <= 5.0f) {
-            player->unk_078 = (s16) ((s32) (((f32) var_s1_2) * (var_f2_2 + 6.0f)));
+        // =====================================================================
+        // STOCK N64 STEERING PHYSICS (unchanged — gamepad/keyboard path)
+        // =====================================================================
+        if ((player->effects & DRIFTING_EFFECT) == DRIFTING_EFFECT) {
+            var_f2_2 = (f32) (((s32) (sp2E4 >> 16)) / 8);
+        } else if (((player->speed / 18.0f) * 216.0f) <= 25.0f) {
+            var_f2_2 = (f32) ((sp2E4 >> 16) / 12);
         } else {
-            player->unk_078 = ((s16) var_s1_2) * (var_f2_2 + 1.5f);
+            var_f2_2 = ((f32) (sp2E4 >> 0x10)) / (8.0f + (player->currentSpeed / 50.0f));
+        }
+        if (var_f2_2 < 0.0f) {
+            var_f2_2 = -var_f2_2;
+        }
+        if ((player->effects & 0x20) == 0x20) {
+            var_f2_2 = var_f2_2 * (sp44[((s16) ((player->speed / 18.0f) * 216.0f)) + 10] * 1.5f);
+        } else if ((player->effects & DRIFTING_EFFECT) == DRIFTING_EFFECT) {
+            var_f2_2 = var_f2_2 * sp44[(s16) ((player->speed / 18.0f) * 216.0f)];
+        } else {
+            var_f2_2 = var_f2_2 * (sp44[(s16) ((player->speed / 18.0f) * 216.0f)] * 1.5f);
+        }
+        player->unk_07C = sp2E4;
+        if (player->unk_10C != 0) {
+            func_8002BD58(player);
+        }
+        player->effects &= 0xDFFFFFFF;
+        if (((s32) player->tyres[BACK_RIGHT].surfaceType) > 0xE) {
+            var_f12 = var_f12;
+        } else {
+            var_f12 += D_800E3410[player->characterId][player->tyres[BACK_RIGHT].surfaceType];
+        }
+        if (((s32) player->tyres[BACK_LEFT].surfaceType) < 0xF) {
+            var_f12 += D_800E3410[player->characterId][player->tyres[BACK_LEFT].surfaceType];
+        }
+        if (((player->effects & 2) != 2) && ((player->effects & DRIFTING_EFFECT) != DRIFTING_EFFECT)) {
+            if ((player->effects & 0x20) == 0x20) {
+                player->unk_078 = (s16) ((s32) (((f32) ((((s32) player->unk_07C) >> 0x10) * 5)) * var_f2_2));
+            } else {
+                if ((player->effects & 0x1) != 0x1) {
+                    if (((player->unk_07C >> 16) >= 45) || ((player->unk_07C >> 16) <= (-45))) {
+                        player->unk_078 = ((player->unk_07C >> 16) * (var_f2_2 + (var_f2_2 * var_f12))) *
+                                          (0.15 + gKartHandlingTable[player->characterId]);
+                    } else {
+                        player->unk_078 = ((player->unk_07C >> 16) * (var_f2_2 + (var_f2_2 * var_f12))) *
+                                          gKartHandlingTable[player->characterId];
+                    }
+                } else {
+                    if ((((player->speed / 18.0f) * 216.0f) >= 0.0f) && (((player->speed / 18.0f) * 216.0f) < 8.0f)) {
+                        player->unk_078 = (player->unk_07C >> 16) * (var_f2_2 + (var_f2_2 * var_f12));
+                    }
+                    if ((((player->speed / 18.0f) * 216.0f) >= 8.0f) && (((player->speed / 18.0f) * 216.0f) < 65.0f)) {
+                        player->unk_078 = (player->unk_07C >> 16) * ((var_f2_2 + 1.5) + (var_f2_2 * var_f12));
+                    }
+                    if (((player->speed / 18.0f) * 216.0f) >= 65.0f) {
+                        player->unk_078 = (player->unk_07C >> 16) * ((var_f2_2 + 1.6) + (var_f2_2 * var_f12));
+                    }
+                }
+                player->unk_228 = 0;
+                if (player->driftState < 2) {
+                    player->driftState = 0;
+                }
+            }
+        } else if (((player->effects & 8) != 8) && ((player->effects & 2) != 2)) {
+            if ((((s16) player->unk_0C0) / 182) > 0) {
+                var_s1_2 = (((s32) (((player->unk_07C >> 0x10) * 0xD) + 0x2B1)) / 106) + 0x28;
+                if ((player->unk_07C >> 0x10) < (-0x27)) {
+                    player->effects = player->effects | 0x20000000;
+                    if ((player->unk_07C >> 0x10) < (-0x31)) {
+                        player->effects |= 0x20000000;
+                    }
+                }
+                func_8002A8A4(player, arg2);
+            } else {
+                var_s1_2 = (((s32) (((player->unk_07C >> 0x10) * 0xD) + 0x2B1)) / 106) - 0x35;
+                if ((player->unk_07C >> 0x10) >= 0x28) {
+                    player->effects = player->effects | 0x20000000;
+                    if ((player->unk_07C >> 0x10) < (-0x31)) {
+                        player->effects |= 0x20000000;
+                    }
+                }
+                func_8002A8A4(player, arg2);
+            }
+            if ((((player->speed / 18.0f) * 216.0f) >= 0.0f) && (((player->speed / 18.0f) * 216.0f) < 8.0f)) {
+                player->unk_078 = (s16) ((s32) (var_s1_2 * ((var_f2_2 + 2.0f) + (var_f2_2 * var_f12))));
+            }
+            if ((((player->speed / 18.0f) * 216.0f) >= 8.0f) && (((player->speed / 18.0f) * 216.0f) < 65.0f)) {
+                player->unk_078 = var_s1_2 * ((var_f2_2 + 3) + (var_f2_2 * var_f12));
+            }
+            if (((player->speed / 18.0f) * 216.0f) >= 65.0f) {
+                player->unk_078 = var_s1_2 * ((((f64) var_f2_2) + 3.5) + (var_f2_2 * var_f12));
+            }
+            if ((player->effects & 0x20000000) == 0x20000000) {
+                player->unk_078 *= 0.9;
+            } else {
+                player->unk_078 *= 0.65;
+            }
+        } else {
+            var_s1_2 = (s16) (((s32) player->unk_07C) >> 16);
+            if (temp_v0_3 == 0) {
+                var_s1_2 = 0;
+            }
+            if (((player->speed / 18.0f) * 216.0f) <= 5.0f) {
+                player->unk_078 = (s16) ((s32) (((f32) var_s1_2) * (var_f2_2 + 6.0f)));
+            } else {
+                player->unk_078 = ((s16) var_s1_2) * (var_f2_2 + 1.5f);
+            }
         }
     }
     if (gModeSelection == BATTLE) {

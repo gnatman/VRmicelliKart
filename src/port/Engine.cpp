@@ -35,6 +35,7 @@
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
 #include <vr/VRToggle.h>
+#include <vr/VRRuntime.h>
 // #include <Fast3D/gfx_rendering_api.h>
 #include <SDL2/SDL.h>
 
@@ -47,6 +48,8 @@
 extern "C" {
 bool prevAltAssets = false;
 float gInterpolationStep = 0.0f;
+extern s32 gTickLogic;
+extern s32 gRefreshRate;
 #include <macros.h>
 #include <fast/resource/factory/DisplayListFactory.h>
 #include <fast/resource/factory/TextureFactory.h>
@@ -90,7 +93,7 @@ GameEngine::GameEngine() {
     Ship::Switch::Init(Ship::PostInitPhase);
 #endif
 
-#ifdef _WIN32
+#if defined(_DEBUG) && defined(_WIN32)
     AllocConsole();
 #endif
 
@@ -289,6 +292,10 @@ bool GameEngine::GenAssetFile() {
 }
 
 uint32_t GameEngine::GetInterpolationFPS() {
+    if (Ship::VRToggle::IsVREnabled()) {
+        return (uint32_t)Ship::VRRuntime::GetInstance()->GetRefreshRate();
+    }
+
     if (CVarGetInteger("gMatchRefreshRate", 0)) {
         return Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate();
 
@@ -302,7 +309,7 @@ uint32_t GameEngine::GetInterpolationFPS() {
 }
 
 uint32_t GameEngine::GetInterpolationFrameCount() {
-    return ceil((float) GetInterpolationFPS() / (60.0f / 2 /*gVIsPerFrame*/));
+    return ceil((float) GetInterpolationFPS() / (gRefreshRate / gTickLogic));
 }
 
 extern "C" uint32_t GameEngine_GetInterpolationFrameCount() {
@@ -438,13 +445,13 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
     static int last_update_rate;
     static int time;
     int fps = target_fps;
-    int original_fps = 60 / 2 /*gVIsPerFrame*/;
+    int original_fps = gRefreshRate / gTickLogic;
 
     if (target_fps == 30 || original_fps > target_fps) {
         fps = original_fps;
     }
 
-    if (last_fps != fps || last_update_rate != 2 /*gVIsPerFrame*/) {
+    if (last_fps != fps || last_update_rate != gTickLogic) {
         time = 0;
     }
 
@@ -466,13 +473,13 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
 
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
     if (wnd != nullptr) {
-        wnd->SetTargetFps(GetInterpolationFPS());
+        wnd->SetTargetFps(original_fps);
         wnd->SetMaximumFrameLatency(1);
     }
     RunCommands(pool, mtx_replacements);
 
     last_fps = fps;
-    last_update_rate = 2;
+    last_update_rate = gTickLogic;
 }
 
 // Audio

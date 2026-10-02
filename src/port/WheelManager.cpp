@@ -54,6 +54,7 @@ void WheelManager::LoadSettings() {
     mBrakeThreshold = CVarGetFloat("gWheel.BrakeThreshold", 0.5f);
     mDriftThreshold = CVarGetFloat("gWheel.DriftThreshold", 0.5f);
     mFFBMasterGain = CVarGetInteger("gWheel.FFBMasterGain", 100);
+    mCombineInputs = CVarGetInteger("gWheel.CombineInputs", 1);
 
     mJoystickGuid = CVarGetString("gWheel.JoystickGuid", "");
 
@@ -122,6 +123,12 @@ void WheelManager::SaveSettings() {
     CVarSetFloat("gWheel.SteeringSaturation", mSteeringSaturation);
     CVarSetFloat("gWheel.SteeringSCurve", mSteeringSCurve);
     CVarSetInteger("gWheel.SteeringCenter", mSteeringCenter);
+
+    CVarSetInteger("gWheel.FFBMasterGain", mFFBMasterGain);
+    CVarSetInteger("gWheel.CombineInputs", mCombineInputs);
+    CVarSetFloat("gWheel.ThrottleThreshold", mThrottleThreshold);
+    CVarSetFloat("gWheel.BrakeThreshold", mBrakeThreshold);
+    CVarSetFloat("gWheel.DriftThreshold", mDriftThreshold);
 
     CVarSetString("gWheel.JoystickGuid", mJoystickGuid.c_str());
 
@@ -196,6 +203,8 @@ void WheelManager::OpenJoystick(int index) {
         mJoystickGuid = guidStr;
         SPDLOG_INFO("Opened Racing Wheel: {}", SDL_JoystickName(mJoystick));
 
+        mHapticErrorStr = "";
+
         if (SDL_JoystickIsHaptic(mJoystick)) {
             mHaptic = SDL_HapticOpenFromJoystick(mJoystick);
             if (mHaptic) {
@@ -210,7 +219,14 @@ void WheelManager::OpenJoystick(int index) {
                 if (features & SDL_HAPTIC_FRICTION) SPDLOG_INFO(" - Supports FRICTION");
                 if (features & SDL_HAPTIC_CUSTOM) SPDLOG_INFO(" - Supports CUSTOM");
                 if (features & SDL_HAPTIC_GAIN) SPDLOG_INFO(" - Supports GAIN");
-                if (features & SDL_HAPTIC_AUTOCENTER) SPDLOG_INFO(" - Supports AUTOCENTER");
+                if (features & SDL_HAPTIC_AUTOCENTER) {
+                    SPDLOG_INFO(" - Supports AUTOCENTER");
+                    if (SDL_HapticSetAutocenter(mHaptic, 0) == 0) {
+                        SPDLOG_INFO(" - Disabled hardware AUTOCENTER");
+                    } else {
+                        SPDLOG_WARN(" - Failed to disable hardware AUTOCENTER: {}", SDL_GetError());
+                    }
+                }
 
                 if (SDL_HapticRumbleSupported(mHaptic)) {
                     if (SDL_HapticRumbleInit(mHaptic) == 0) {
@@ -261,10 +277,12 @@ void WheelManager::OpenJoystick(int index) {
                 
                 SPDLOG_INFO("Haptic Feedback Initialization Attempt Complete!");
             } else {
-                SPDLOG_ERROR("SDL_HapticOpenFromJoystick failed: {}", SDL_GetError());
+                mHapticErrorStr = SDL_GetError();
+                SPDLOG_ERROR("SDL_HapticOpenFromJoystick failed: {}", mHapticErrorStr);
             }
         } else {
-            SPDLOG_WARN("SDL_JoystickIsHaptic returned false for this device. Error: {}", SDL_GetError());
+            mHapticErrorStr = SDL_GetError();
+            SPDLOG_WARN("SDL_JoystickIsHaptic returned false for this device. Error: {}", mHapticErrorStr);
         }
     }
 }
@@ -292,6 +310,8 @@ void WheelManager::UpdateFFB() {
             SDL_HapticEffect effect;
             memset(&effect, 0, sizeof(SDL_HapticEffect));
             effect.type = SDL_HAPTIC_CONSTANT;
+            effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
+            effect.constant.direction.dir[0] = 1;
             effect.constant.level = 0;
             effect.constant.length = SDL_HAPTIC_INFINITY;
             SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
@@ -300,6 +320,9 @@ void WheelManager::UpdateFFB() {
             SDL_HapticEffect effect;
             memset(&effect, 0, sizeof(SDL_HapticEffect));
             effect.type = SDL_HAPTIC_SINE;
+            effect.periodic.direction.type = SDL_HAPTIC_CARTESIAN;
+            effect.periodic.direction.dir[0] = 1;
+            effect.periodic.period = 50;
             effect.periodic.magnitude = 0;
             effect.periodic.length = SDL_HAPTIC_INFINITY;
             SDL_HapticUpdateEffect(mHaptic, mSineEffectId, &effect);
@@ -524,9 +547,12 @@ void WheelManager::ProcessInput(OSContPad* pad) {
         if (normalized > 1.0f) normalized = 1.0f;
         if (normalized < -1.0f) normalized = -1.0f;
         
+        // Store native high-res steer for direct game physics use (Approach B)
+        mNativeSteer = normalized;
+        
         int8_t wheel_stick_x = (int8_t)(normalized * 127.0f);
 
-        if (CVarGetInteger("gWheel.CombineInputs", 1)) {
+        if (mCombineInputs) {
             // Combine with existing input (e.g. keyboard)
             // We use the one with the greater absolute deflection
             if (abs(wheel_stick_x) > abs(pad->stick_x)) {
@@ -541,24 +567,25 @@ void WheelManager::ProcessInput(OSContPad* pad) {
     // Throttle (A button)
     if (mThrottleAxis != -1) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mThrottleAxis);
-        // Pedals often go from -32768 (unpressed) to 32767 (pressed) or 0 to 32767
-        // We'll normalize based on a threshold
-        bool pressed = mThrottleInvert ? (raw < 0) : (raw > 0);
-        if (pressed) pad->button |= BTN_A;
+        float val = (float)raw / 32767.0f;
+        if (mThrottleInvert) val = -val;
+        if (val > mThrottleThreshold) pad->button |= BTN_A;
     }
 
     // Brake (B button)
     if (mBrakeAxis != -1) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mBrakeAxis);
-        bool pressed = mBrakeInvert ? (raw < 0) : (raw > 0);
-        if (pressed) pad->button |= BTN_B;
+        float val = (float)raw / 32767.0f;
+        if (mBrakeInvert) val = -val;
+        if (val > mBrakeThreshold) pad->button |= BTN_B;
     }
     
     // Drift (R button)
     if (mDriftAxis != -1) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mDriftAxis);
-        bool pressed = mDriftInvert ? (raw < 0) : (raw > 0);
-        if (pressed) pad->button |= BTN_R;
+        float val = (float)raw / 32767.0f;
+        if (mDriftInvert) val = -val;
+        if (val > mDriftThreshold) pad->button |= BTN_R;
     }
 
     // Buttons & Hats
@@ -594,6 +621,18 @@ void WheelManager::DrawSettings() {
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), ICON_FA_EXCLAMATION_TRIANGLE " No Wheel Detected");
     }
 
+    if (ImGui::Checkbox("Combine Wheel & Keyboard Inputs", &mCombineInputs)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("When enabled, the game will use whichever input (wheel or keyboard) has the stronger deflection. If disabled, the wheel completely overrides keyboard steering.");
+
+    bool nativeSteer = CVarGetInteger("gWheel.NativeSteer", 1);
+    if (ImGui::Checkbox("Native Steering Physics", &nativeSteer)) {
+        CVarSetInteger("gWheel.NativeSteer", nativeSteer);
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("When enabled, the wheel's full resolution drives kart steering directly with sim-like physics.\nWhen disabled, the wheel simulates an N64 analog stick (legacy mode).");
+
     ImGui::Separator();
     
     if (ImGui::SliderInt("Force Feedback Gain", &mFFBMasterGain, 0, 100, "%d%%")) {
@@ -602,7 +641,11 @@ void WheelManager::DrawSettings() {
     }
     if (!mHaptic && mJoystick) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(Hardware Not Supported)");
+        if (!mHapticErrorStr.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(%s)", mHapticErrorStr.c_str());
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(Hardware Not Supported)");
+        }
     }
 
     ImGui::Separator();
@@ -687,8 +730,25 @@ void WheelManager::DrawSettings() {
         }
 
         DrawAxisMapping("Throttle", mThrottleAxis, mThrottleInvert, 1);
+        if (mThrottleAxis != -1) {
+            ImGui::Indent();
+            if (ImGui::SliderFloat("Throttle Threshold", &mThrottleThreshold, 0.0f, 1.0f, "%.2f")) SaveSettings();
+            ImGui::Unindent();
+        }
+
         DrawAxisMapping("Brake", mBrakeAxis, mBrakeInvert, 2);
+        if (mBrakeAxis != -1) {
+            ImGui::Indent();
+            if (ImGui::SliderFloat("Brake Threshold", &mBrakeThreshold, 0.0f, 1.0f, "%.2f")) SaveSettings();
+            ImGui::Unindent();
+        }
+
         DrawAxisMapping("Drift (R)", mDriftAxis, mDriftInvert, 3);
+        if (mDriftAxis != -1) {
+            ImGui::Indent();
+            if (ImGui::SliderFloat("Drift Threshold", &mDriftThreshold, 0.0f, 1.0f, "%.2f")) SaveSettings();
+            ImGui::Unindent();
+        }
 
         ImGui::Separator();
         ImGui::Text("Button Configuration:");
@@ -806,5 +866,18 @@ void WheelManager_DrawUI() {
 
 void WheelManager_DrawSettings() {
     WheelManager::GetInstance()->DrawSettings();
+}
+
+float WheelManager_GetNativeSteer() {
+    WheelManager* wm = WheelManager::GetInstance();
+    if (wm->IsEnabled()) {
+        return wm->GetNativeSteer();
+    }
+    return 0.0f;
+}
+
+int WheelManager_IsNativeSteerActive() {
+    WheelManager* wm = WheelManager::GetInstance();
+    return (wm->IsEnabled() && CVarGetInteger("gWheel.NativeSteer", 1)) ? 1 : 0;
 }
 }

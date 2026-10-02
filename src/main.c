@@ -726,7 +726,23 @@ void race_logic_loop(void) {
     }
 
     if (gIsGamePaused == false) {
-        for (size_t i = 0; i < gTickLogic; i++) {
+        static float accumulator = 0.0f;
+        accumulator += gDeltaTime;
+        float tick_duration = 1.0f / (30.0f * (float)gTickLogic);
+        int ticks_to_run = 0;
+        
+        while (accumulator >= tick_duration) {
+            accumulator -= tick_duration;
+            ticks_to_run++;
+        }
+        
+        // Clamp to avoid spiral of death
+        if (ticks_to_run > 10) {
+            ticks_to_run = 10;
+            accumulator = 0.0f;
+        }
+
+        for (int i = 0; i < ticks_to_run; i++) {
             process_game_tick();
         }
         if (Editor_IsPaused() == false) {
@@ -921,6 +937,16 @@ void start_gfx_sptask(void) {
 }
 
 void handle_vblank(void) {
+    static u32 last_vblank_time = 0;
+    u32 now = osGetCount();
+
+    // Throttle to ~60Hz (1/60s) to keep internal timers and audio at the correct speed
+    // even when rendering at higher refresh rates via interpolation.
+    if (last_vblank_time != 0 && (now - last_vblank_time) < (OS_CPU_COUNTER / 70)) {
+        return;
+    }
+    last_vblank_time = now;
+
     gVBlankTimer += V_BlANK_TIMER_ITER;
     sNumVBlanks++;
 

@@ -10,6 +10,7 @@
 #include "ship/config/ConsoleVariable.h"
 #include <spdlog/spdlog.h>
 #include <cmath>
+#include <algorithm>
 #include <imgui.h>
 #include <random>
 #include <chrono>
@@ -41,6 +42,13 @@ struct TelemetryManager::Impl {
     int16_t lastLakituProps = 0;
     float lastPos[3] = { 0, 0, 0 };
     uint32_t discontinuityCounter = 0;
+
+    // Acceleration filter state
+    float prevLocalVel[3] = { 0, 0, 0 };
+    float smoothedSurge = 0;
+    float smoothedSway = 0;
+    float smoothedHeave = 0;
+    bool accelInitialized = false;
 };
 
 TelemetryManager* TelemetryManager::mInstance = nullptr;
@@ -89,6 +97,8 @@ void TelemetryManager::Init() {
 void TelemetryManager::LoadSettings() {
     mIsEnabled = CVarGetInteger("gTelemetry.Enabled", 0);
     mSpeedFactor = CVarGetFloat("gTelemetry.SpeedFactor", 3.6f);
+    mSmoothingAlpha = CVarGetFloat("gTelemetry.SmoothingAlpha", 0.3f);
+    mMaxAccel = CVarGetFloat("gTelemetry.MaxAccel", 30.0f);
     std::string ip = CVarGetString("gTelemetry.IP", "127.0.0.1");
     int port = CVarGetInteger("gTelemetry.Port", 20777);
 
@@ -101,6 +111,7 @@ void TelemetryManager::Update() {
     if (!mIsEnabled) return;
     if (gGamestate != RACING && gGamestate != ENDING) {
         pImpl->sessionId = 0; // Reset session when not racing
+        pImpl->accelInitialized = false;
         return;
     }
     if (pImpl->socket == INVALID_SOCKET) return;
@@ -110,10 +121,10 @@ void TelemetryManager::Update() {
         std::mt19937_64 gen(rd());
         pImpl->sessionId = gen();
         pImpl->sessionStartTime = gCourseTimer;
+        pImpl->accelInitialized = false;
     }
 
     Player* p = &gPlayers[0];
-    static float prevLocalVel[3] = { 0, 0, 0 };
 
     // Detect discontinuities (teleports, resets, Lakitu)
     bool discontinuity = false;
@@ -178,26 +189,59 @@ void TelemetryManager::Update() {
     packet.RollDegrees  = binToDeg(p->rotation[2]);
 
     // Local Velocity calculation (World Velocity -> Local Space)
-    // LocalX = worldVel dot orientationMatrix[0]
-    // LocalY = worldVel dot orientationMatrix[1]
-    // LocalZ = worldVel dot orientationMatrix[2]
     float localVelX = p->velocity[0] * p->orientationMatrix[0][0] + p->velocity[1] * p->orientationMatrix[0][1] + p->velocity[2] * p->orientationMatrix[0][2];
     float localVelY = p->velocity[0] * p->orientationMatrix[1][0] + p->velocity[1] * p->orientationMatrix[1][1] + p->velocity[2] * p->orientationMatrix[1][2];
     float localVelZ = p->velocity[0] * p->orientationMatrix[2][0] + p->velocity[1] * p->orientationMatrix[2][1] + p->velocity[2] * p->orientationMatrix[2][2];
 
-    packet.LocalVelocityLateralMps = localVelX;
-    packet.LocalVelocityUpMps = localVelY;
-    packet.LocalVelocityForwardMps = localVelZ;
+    // Convert from game units to m/s using the calibrated speed factor.
+    // If speed * mSpeedFactor = km/h, then velocity * (mSpeedFactor / 3.6) = m/s.
+    float velScale = mSpeedFactor / 3.6f;
+    float lvX = localVelX * velScale;
+    float lvY = localVelY * velScale;
+    float lvZ = localVelZ * velScale;
 
-    // Local Acceleration (G-forces)
+    packet.LocalVelocityLateralMps = lvX;
+    packet.LocalVelocityUpMps = lvY;
+    packet.LocalVelocityForwardMps = lvZ;
+
+    // Local Acceleration with EMA filtering, clamping, and discontinuity suppression
     float dt = gDeltaTime > 0 ? gDeltaTime : (1.0f / 60.0f);
-    packet.LocalSwayMs2 = (localVelX - prevLocalVel[0]) / dt;
-    packet.LocalHeaveMs2 = (localVelY - prevLocalVel[1]) / dt;
-    packet.LocalSurgeMs2 = (localVelZ - prevLocalVel[2]) / dt;
 
-    prevLocalVel[0] = localVelX;
-    prevLocalVel[1] = localVelY;
-    prevLocalVel[2] = localVelZ;
+    if (discontinuity || !pImpl->accelInitialized) {
+        // Suppress acceleration spikes during teleports, Lakitu, session start
+        pImpl->prevLocalVel[0] = lvX;
+        pImpl->prevLocalVel[1] = lvY;
+        pImpl->prevLocalVel[2] = lvZ;
+        pImpl->smoothedSurge = 0;
+        pImpl->smoothedSway = 0;
+        pImpl->smoothedHeave = 0;
+        pImpl->accelInitialized = true;
+
+        packet.LocalSurgeMs2 = 0;
+        packet.LocalSwayMs2 = 0;
+        packet.LocalHeaveMs2 = 0;
+    } else {
+        // Raw acceleration (velocity derivative)
+        float rawSurge = (lvZ - pImpl->prevLocalVel[2]) / dt;
+        float rawSway  = (lvX - pImpl->prevLocalVel[0]) / dt;
+        float rawHeave = (lvY - pImpl->prevLocalVel[1]) / dt;
+
+        // Exponential Moving Average low-pass filter
+        float a = mSmoothingAlpha;
+        pImpl->smoothedSurge = a * rawSurge + (1.0f - a) * pImpl->smoothedSurge;
+        pImpl->smoothedSway  = a * rawSway  + (1.0f - a) * pImpl->smoothedSway;
+        pImpl->smoothedHeave = a * rawHeave + (1.0f - a) * pImpl->smoothedHeave;
+
+        // Hard clamp to prevent exceeding platform travel limits
+        float maxA = mMaxAccel;
+        packet.LocalSurgeMs2 = std::clamp(pImpl->smoothedSurge, -maxA, maxA);
+        packet.LocalSwayMs2  = std::clamp(pImpl->smoothedSway,  -maxA, maxA);
+        packet.LocalHeaveMs2 = std::clamp(pImpl->smoothedHeave, -maxA, maxA);
+
+        pImpl->prevLocalVel[0] = lvX;
+        pImpl->prevLocalVel[1] = lvY;
+        pImpl->prevLocalVel[2] = lvZ;
+    }
 
     // Position (Double)
     packet.VehiclePositionEast = (double)p->pos[0];
@@ -260,6 +304,23 @@ void TelemetryManager::DrawSettings() {
             Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
         ImGui::TextDisabled("MK64 internal speed * this factor = GroundSpeedKmh");
+        ImGui::TextDisabled("Also scales velocity/acceleration to real-world units.");
+
+        ImGui::Separator();
+        ImGui::Text("Motion Filtering");
+
+        if (ImGui::SliderFloat("Smoothing (Alpha)", &mSmoothingAlpha, 0.05f, 1.0f, "%.2f")) {
+            CVarSetFloat("gTelemetry.SmoothingAlpha", mSmoothingAlpha);
+            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+        ImGui::TextDisabled("Lower = smoother (more lag). Higher = responsive (spikier).");
+
+        if (ImGui::InputFloat("Max Acceleration (m/s^2)", &mMaxAccel, 1.0f, 5.0f, "%.1f")) {
+            if (mMaxAccel < 1.0f) mMaxAccel = 1.0f;
+            CVarSetFloat("gTelemetry.MaxAccel", mMaxAccel);
+            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+        ImGui::TextDisabled("Clamp acceleration to prevent hitting platform limits. ~30 = ~3G.");
     }
 }
 
