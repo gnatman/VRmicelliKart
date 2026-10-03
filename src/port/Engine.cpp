@@ -36,6 +36,7 @@
 #include <fast/interpreter.h>
 #include <vr/VRToggle.h>
 #include <vr/VRRuntime.h>
+#include <chrono>
 // #include <Fast3D/gfx_rendering_api.h>
 #include <SDL2/SDL.h>
 
@@ -436,6 +437,9 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
  * or translated into modern graphics commands
  */
 void GameEngine::ProcessGfxCommands(Gfx* pool) {
+    static auto sLastCommandsEnd = std::chrono::high_resolution_clock::time_point();
+    auto now = std::chrono::high_resolution_clock::now();
+
     std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
     int target_fps = GameEngine::Instance->GetInterpolationFPS();
     if (CVarGetInteger("gModifyInterpolationTargetFPS", 0)) {
@@ -471,12 +475,20 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
 
     time -= fps;
 
+    if (sLastCommandsEnd.time_since_epoch().count() > 0 && Ship::VRToggle::IsVREnabled()) {
+        float logicMs = std::chrono::duration<float, std::milli>(now - sLastCommandsEnd).count();
+        size_t frameCount = mtx_replacements.empty() ? 1 : mtx_replacements.size();
+        Ship::VRRuntime::GetInstance()->RecordGameLogicTime(logicMs / (float)frameCount);
+    }
+
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
     if (wnd != nullptr) {
-        wnd->SetTargetFps(original_fps);
+        wnd->SetTargetFps(fps);
         wnd->SetMaximumFrameLatency(1);
     }
     RunCommands(pool, mtx_replacements);
+
+    sLastCommandsEnd = std::chrono::high_resolution_clock::now();
 
     last_fps = fps;
     last_update_rate = gTickLogic;

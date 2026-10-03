@@ -9,6 +9,7 @@
 extern "C" {
 #include "common_structs.h"
 #include "defines.h"
+#include "mk64.h"
 extern Player gPlayers[];
 extern s32 gGamestate;
 }
@@ -290,41 +291,21 @@ void WheelManager::InitHapticEffects() {
         }
 
         if (mConstantEffectId != -1) {
-            if (SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1) != 0) {
+            if (SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY) != 0) {
                 SPDLOG_ERROR("Failed to run CONSTANT effect: {}", SDL_GetError());
             } else {
-                SPDLOG_INFO("CONSTANT effect created and running with type {}.",
+                SPDLOG_INFO("CONSTANT effect created and running with type {} (INFINITY iterations).",
                     (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
             }
         } else {
             SPDLOG_ERROR("Failed to create CONSTANT effect: {}", SDL_GetError());
         }
     }
-
-    if (mSineEffectId == -1) {
-        SDL_HapticEffect effect;
-        memset(&effect, 0, sizeof(SDL_HapticEffect));
-        effect.type = SDL_HAPTIC_SINE;
-        effect.periodic.direction.type = mConstantDirectionType;
-        effect.periodic.direction.dir[0] = 1;
-        effect.periodic.period = 50; // 50ms = 20Hz shake
-        effect.periodic.magnitude = 0;
-        effect.periodic.length = SDL_HAPTIC_INFINITY;
-        mSineEffectId = SDL_HapticNewEffect(mHaptic, &effect);
-        if (mSineEffectId != -1) {
-            if (SDL_HapticRunEffect(mHaptic, mSineEffectId, 1) != 0) {
-                SPDLOG_ERROR("Failed to run SINE effect: {}", SDL_GetError());
-            } else {
-                SPDLOG_INFO("SINE effect created and running.");
-            }
-        } else {
-            SPDLOG_ERROR("Failed to create SINE effect: {}", SDL_GetError());
-        }
-    }
 }
 
 void WheelManager::ReInitHapticEffects() {
     if (!mHaptic) return;
+    SPDLOG_INFO("Reinitializing haptic effects (Re-arm)...");
     if (mConstantEffectId != -1) {
         SDL_HapticDestroyEffect(mHaptic, mConstantEffectId);
         mConstantEffectId = -1;
@@ -334,6 +315,7 @@ void WheelManager::ReInitHapticEffects() {
         mSineEffectId = -1;
     }
     InitHapticEffects();
+    mAutoRearmCount++;
 }
 
 void WheelManager::CloseJoystick() {
@@ -360,13 +342,17 @@ void WheelManager::CloseJoystick() {
 void WheelManager::UpdateFFB() {
     if (!mHaptic) return;
 
-    // DirectInput safety monitor: If constant effect was stopped (e.g. driver stall trip or lost focus), restart it
-    if (mConstantEffectId != -1) {
-        int status = SDL_HapticGetEffectStatus(mHaptic, mConstantEffectId);
-        mLastFFBEffectStatus = status;
-        if (status == 0) {
-            // Auto re-run effect to keep it alive
-            SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1);
+    // DirectInput safety monitor: check status periodically (~1 Hz), not every single frame!
+    static int sStatusCheckCounter = 0;
+    if (++sStatusCheckCounter >= 60) {
+        sStatusCheckCounter = 0;
+        if (mConstantEffectId != -1) {
+            int status = SDL_HapticGetEffectStatus(mHaptic, mConstantEffectId);
+            mLastFFBEffectStatus = status;
+            if (status == 0) {
+                SPDLOG_WARN("Constant FFB effect was stopped by driver; restarting with INFINITY iterations.");
+                SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY);
+            }
         }
     }
 
@@ -406,62 +392,192 @@ void WheelManager::UpdateFFB() {
     }
     mLastSoftLockForce = softLockForce;
 
-    if (gGamestate != 2) { // 2 = RACING (in menus / pause)
+    if (gGamestate != RACING) { // In menus, pause, title screen
         constantForce = softLockForce;
-    } else { // Racing
+        mLastCenteringForce = 0;
+        mLastLateralForce = 0;
+        mLastRumbleForce = 0;
+        mIsOffroadActive = false;
+
+        // Support test triggers while in menus
+        if (mTestJoltFrames > 0) {
+            constantForce += 28000;
+            mTestJoltFrames--;
+        }
+        mLastJoltForce = (mTestJoltFrames > 0) ? 28000 : 0;
+        mJoltFramesRemaining = mTestJoltFrames;
+
+        if (mTestShakeActive) {
+            static int sMenuShakeStep = 0;
+            sMenuShakeStep++;
+            float angle = (float)sMenuShakeStep * (2.0f * 3.14159265f / 3.0f);
+            constantForce += (int16_t)(sinf(angle) * 24000.0f);
+            mIsSpinoutActive = true;
+            mLastSineMagnitude = 24000;
+        } else if (mTestJoltFrames <= 0) {
+            mIsSpinoutActive = false;
+            mLastSineMagnitude = 0;
+        }
+    } else { // In active race
         Player* p = &gPlayers[0]; // Assuming local VR player is P1
+        mLastPlayerSpeed = p->speed;
+        mLastPlayerEffects = p->effects;
+        mLastPlayerTriggers = p->triggers;
+
         static f32 lastSpeed = 0.0f;
+        static int sJoltFrames = 0;
+        static int16_t sJoltForce = 0;
+        static bool sWasHit = false;
 
-        if (softLockForce != 0) {
-            // Soft lock wall takes absolute priority over gameplay forces
-            constantForce = softLockForce;
-            lastSpeed = p->speed;
-        } else {
-            // 1. Auto-center based on speed and current wheel angle
-            if (mSteeringAxis != -1 && p->speed > 5.0f) {
-                int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
-                int32_t centered = (int32_t)raw - (int32_t)mSteeringCenter;
-                float speedFactor = p->speed / 60.0f; // Max speed approx 60
-                if (speedFactor > 1.0f) speedFactor = 1.0f;
-                
-                // Push back against the wheel
-                constantForce = (int16_t)(-centered * speedFactor * 0.3f);
+        // 1. Dynamic Auto-Centering (Caster trail based on speed and wheel deflection)
+        // Center deadband eliminates limit-cycle flutter / hunting around zero on direct drive wheels
+        int16_t centeringForce = 0;
+        if (mSteeringAxis != -1 && p->speed > 0.3f) {
+            int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
+            int32_t centered = (int32_t)raw - (int32_t)mSteeringCenter;
+            const int32_t kCenterDeadband = 350; // ~1 deg deadband prevents direct drive oscillation
+            if (abs(centered) > kCenterDeadband) {
+                int32_t active = (centered > 0) ? (centered - kCenterDeadband) : (centered + kCenterDeadband);
+                float deflRatio = (float)active / (32767.0f - kCenterDeadband);
+                float speedFactor = std::clamp(p->speed / 7.5f, 0.0f, 1.0f);
+                centeringForce = (int16_t)(-deflRatio * 32767.0f * speedFactor * 0.40f);
             }
+        }
+        mLastCenteringForce = centeringForce;
+        constantForce += centeringForce;
 
-            // 2. Lateral G (Hopping and Drifting)
-            if ((p->effects & 0x10) || p->hopVerticalOffset > 0.0f) { // DRIFTING_EFFECT = 0x10
-                // Direction is based on turning state
-                if (p->kartProps & 0x2) { // RIGHT_TURN
-                    constantForce += 15000;
-                } else if (p->kartProps & 0x4) { // LEFT_TURN
-                    constantForce -= 15000;
+        // 2. Lateral G (Drifting tire scrub & continuous yaw cornering load)
+        int16_t lateralForce = 0;
+        if (p->effects & DRIFTING_EFFECT) {
+            // Drifting: lateral tire scrub resisting the slide
+            int driftDir = 0;
+            if (p->unk_0C0 > 50) driftDir = 1;
+            else if (p->unk_0C0 < -50) driftDir = -1;
+            lateralForce = (int16_t)(driftDir * 12000);
+        } else if (abs(p->unk_078) > 10 && p->speed > 1.0f) {
+            // Smooth continuous yaw rate cornering load (no step discontinuities)
+            float yawMag = (float)abs(p->unk_078);
+            float smoothTurn = (p->unk_078 > 0 ? 1.0f : -1.0f) * std::clamp((yawMag - 10.0f) / 130.0f, 0.0f, 1.0f);
+            lateralForce = (int16_t)(-smoothTurn * 6000.0f);
+        }
+        mLastLateralForce = lateralForce;
+        constantForce += lateralForce;
+
+        // 3. Impact & Collision Jolts (Wall hits, shells, bombs, lightning, speed drops)
+        bool wallHit = ((p->unk_046 & 0x20) != 0 || 
+                        p->collision.surfaceDistance[0] < -0.2f || 
+                        p->collision.surfaceDistance[1] < -0.2f) && (p->speed > 0.8f);
+        
+        // Item hits: green/red/blue shells, explosions, stars, lightning, squish, crash
+        bool itemHit = ((p->effects & (0x400 | HIT_BY_ITEM_EFFECT | 0x01000000 | LIGHTNING_EFFECT | HIT_EFFECT)) != 0) ||
+                       ((p->kartGraphics & CRASH) != 0);
+
+        bool speedDropHit = (lastSpeed > 2.0f && (lastSpeed - p->speed) > 1.4f);
+
+        static bool sWasWallHit = false;
+        static bool sWasItemHit = false;
+
+        bool newHit = false;
+        int16_t impactPunch = 0;
+
+        if (wallHit && !sWasWallHit) {
+            newHit = true;
+            // Directional wall kick: deflect wheel away from the wall!
+            if (p->collision.surfaceDistance[0] < -0.2f) {
+                impactPunch = -26000; // Hit wall on right -> kick left
+            } else if (p->collision.surfaceDistance[1] < -0.2f) {
+                impactPunch = 26000;  // Hit wall on left -> kick right
+            } else {
+                impactPunch = (rand() % 2 == 0) ? 26000 : -26000;
+            }
+        } else if (itemHit && !sWasItemHit) {
+            newHit = true;
+            impactPunch = (rand() % 2 == 0) ? 28000 : -28000;
+        } else if (speedDropHit && sJoltFrames <= 0) {
+            newHit = true;
+            impactPunch = (rand() % 2 == 0) ? 26000 : -26000;
+        }
+
+        sWasWallHit = wallHit;
+        sWasItemHit = itemHit;
+
+        if (newHit && sJoltFrames <= 0) {
+            sJoltFrames = 8; // ~130ms punch
+            sJoltForce = impactPunch;
+        }
+
+        // Test trigger from UI button
+        if (mTestJoltFrames > 0) {
+            sJoltFrames = mTestJoltFrames;
+            sJoltForce = 28000;
+            mTestJoltFrames = 0;
+        }
+
+        if (sJoltFrames > 0) {
+            constantForce = sJoltForce;
+            sJoltFrames--;
+        }
+        lastSpeed = p->speed;
+        mLastJoltForce = (sJoltFrames > 0) ? sJoltForce : 0;
+        mJoltFramesRemaining = sJoltFrames;
+
+        // 4. Spinout & Airborne Item-Hit Tumble Shake (20 Hz synthesized wave in constant force)
+        bool isSpinout = ((p->kartProps & DRIVING_SPINOUT) != 0) || 
+                         ((p->effects & 0x80) != 0) || 
+                         ((p->effects & 0x40) != 0);
+
+        bool shouldShake = isSpinout || itemHit || mTestShakeActive;
+        mIsSpinoutActive = shouldShake;
+        int16_t spinoutForce = 0;
+        static int sSpinoutStep = 0;
+        if (shouldShake) {
+            sSpinoutStep++;
+            float angle = (float)sSpinoutStep * (2.0f * 3.14159265f / 3.0f); // 20 Hz at 60 FPS
+            spinoutForce = (int16_t)(sinf(angle) * 24000.0f);
+        }
+        mLastSineMagnitude = shouldShake ? 24000 : 0;
+        constantForce += spinoutForce;
+
+        // 5. Rumble (Offroad terrain texture buzz synthesized into constant force)
+        bool offroad = (p->surfaceType == GRASS || p->surfaceType == SAND_OFFROAD || 
+                        p->surfaceType == SNOW_OFFROAD || p->surfaceType == DIRT_OFFROAD || 
+                        p->surfaceType == OUT_OF_BOUNDS);
+        if (!offroad) {
+            for (int t = 0; t < 4; t++) {
+                uint8_t st = p->tyres[t].surfaceType;
+                if (st == GRASS || st == SAND_OFFROAD || st == SNOW_OFFROAD || st == DIRT_OFFROAD || st == OUT_OF_BOUNDS) {
+                    offroad = true;
+                    break;
                 }
             }
-
-            // 3. Jolt (Hit by item / tumble)
-            if (lastSpeed - p->speed > 15.0f || (p->triggers & 0x01404106)) { // HIT_TRIGGERS
-                constantForce = (rand() % 2 == 0) ? 32767 : -32767;
-            }
-            lastSpeed = p->speed;
         }
+        mIsOffroadActive = offroad;
 
-        // 4. Shake (Spinning out)
-        if (p->kartProps & 0x4000 || p->triggers & 0x200000) { // DRIVING_SPINOUT or SPINOUT_TRIGGER
-            sineMagnitude = 30000;
+        int16_t rumbleForce = 0;
+        static int sRumbleStep = 0;
+        if (offroad && p->speed > 0.5f) {
+            sRumbleStep++;
+            float intensity = std::clamp(p->speed / 6.0f, 0.35f, 1.0f);
+            int16_t rumbleMag = (int16_t)(intensity * 4500.0f);
+            rumbleForce = (sRumbleStep % 2 == 0) ? rumbleMag : -rumbleMag;
         }
+        mLastRumbleForce = rumbleForce;
+        constantForce += rumbleForce;
 
-        // 5. Rumble (Offroad)
-        if (mHapticRumbleSupported) {
-            bool offroad = (p->tyres[0].surfaceType == 0x07 || // SAND_OFFROAD
-                            p->tyres[0].surfaceType == 0x0B || // SNOW_OFFROAD
-                            p->tyres[0].surfaceType == 0x0D || // DIRT_OFFROAD
-                            p->tyres[0].surfaceType == 0x08 || // GRASS
-                            p->tyres[0].surfaceType == 0xFD);  // OUT_OF_BOUNDS
-            
-            if (offroad && p->speed > 5.0f) {
-                float intensity = std::min(1.0f, p->speed / 40.0f);
-                SDL_HapticRumblePlay(mHaptic, intensity, 100);
-            }
+        // Apply FFB Master Gain to gameplay forces
+        float gainMult = std::clamp((float)mFFBMasterGain / 100.0f, 0.0f, 1.0f);
+        constantForce = (int16_t)(constantForce * gainMult);
+
+        // First-order low pass filter to eliminate 60 Hz frame-to-frame torque ripple on Direct Drive
+        static float sFilteredForce = 0.0f;
+        sFilteredForce = sFilteredForce * 0.65f + (float)constantForce * 0.35f;
+        constantForce = (int16_t)sFilteredForce;
+
+        if (softLockForce != 0) {
+            // Soft lock wall takes absolute priority over gameplay forces and is unfiltered
+            constantForce = softLockForce;
+            sFilteredForce = (float)softLockForce;
+            sJoltFrames = 0;
         }
     }
 
@@ -484,24 +600,26 @@ void WheelManager::UpdateFFB() {
         mLastFFBUpdateResult = SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
         if (mLastFFBUpdateResult != 0) {
             mLastFFBError = SDL_GetError();
-            // Attempt to re-run effect to re-acquire device if lost
-            SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1);
+            mConsecutiveFFBErrors++;
+            if (mConsecutiveFFBErrors == 1 || (mConsecutiveFFBErrors % 120 == 0)) {
+                SPDLOG_ERROR("DirectInput FFB update failed: {} (consecutive failures: {})", 
+                    mLastFFBError.empty() ? "Unknown" : mLastFFBError, mConsecutiveFFBErrors);
+            }
+            // Auto-rearm / self-healing: if failed for 10 consecutive frames (~160ms), automatically recreate the effect
+            if (mConsecutiveFFBErrors >= 10) {
+                SPDLOG_WARN("FFB failed for 10 frames - performing auto-rearm recovery...");
+                ReInitHapticEffects();
+                mConsecutiveFFBErrors = 0;
+            } else {
+                SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY);
+            }
         } else {
+            if (mConsecutiveFFBErrors > 0) {
+                SPDLOG_INFO("FFB recovered successfully after {} failed frames.", mConsecutiveFFBErrors);
+            }
+            mConsecutiveFFBErrors = 0;
             mLastFFBError.clear();
         }
-    }
-
-    // Update Sine Effect
-    if (mSineEffectId != -1) {
-        SDL_HapticEffect effect;
-        memset(&effect, 0, sizeof(SDL_HapticEffect));
-        effect.type = SDL_HAPTIC_SINE;
-        effect.periodic.direction.type = mConstantDirectionType;
-        effect.periodic.direction.dir[0] = 1;
-        effect.periodic.period = 50;
-        effect.periodic.magnitude = sineMagnitude;
-        effect.periodic.length = SDL_HAPTIC_INFINITY;
-        SDL_HapticUpdateEffect(mHaptic, mSineEffectId, &effect);
     }
 }
 
@@ -893,6 +1011,15 @@ void WheelManager::DrawSettings() {
             }
 
             ImGui::Text("Commanded FFB Force: %d (Soft Lock: %d)", mLastCommandedForce, mLastSoftLockForce);
+            if (ImGui::TreeNodeEx("Active Forces Breakdown", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::BulletText("Auto-Centering: %d", mLastCenteringForce);
+                ImGui::BulletText("Lateral Load (Drift/Turn): %d", mLastLateralForce);
+                ImGui::BulletText("Collision Jolt: %d (%d frames remaining)", mLastJoltForce, mJoltFramesRemaining);
+                ImGui::BulletText("Offroad Terrain Texture: %d (%s)", mLastRumbleForce, mIsOffroadActive ? "ACTIVE" : "Offroad Idle");
+                ImGui::BulletText("Spinout 20Hz Shake: %s (Magnitude: %d)", mIsSpinoutActive ? "ACTIVE" : "Idle", mLastSineMagnitude);
+                ImGui::BulletText("Player Speed: %.2f | Effects: 0x%08X", mLastPlayerSpeed, mLastPlayerEffects);
+                ImGui::TreePop();
+            }
 
             // Effect Status & Driver Health
             const char* statusStr = "Not Created";
@@ -905,10 +1032,10 @@ void WheelManager::DrawSettings() {
                 (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
 
             if (mLastFFBUpdateResult == 0) {
-                ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK");
+                ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK (Auto-Rearms: %d)", mAutoRearmCount);
             } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "DirectInput Update Error: %s", 
-                    mLastFFBError.empty() ? "Failed" : mLastFFBError.c_str());
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "DirectInput Update Error: %s (Failures: %d, Auto-Rearms: %d)", 
+                    mLastFFBError.empty() ? "Failed" : mLastFFBError.c_str(), mConsecutiveFFBErrors, mAutoRearmCount);
             }
 
             if (ImGui::Checkbox("Invert Force Feedback Direction", &mFFBInvert)) {
@@ -921,6 +1048,21 @@ void WheelManager::DrawSettings() {
                 ReInitHapticEffects();
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Destroys and recreates the DirectInput force feedback effects if the motor stopped responding.");
+
+            if (ImGui::Button("Test Collision Jolt")) {
+                mTestJoltFrames = 8;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manually triggers an impact jolt so you can feel the collision force.");
+
+            ImGui::SameLine();
+            if (ImGui::Button(mTestShakeActive ? "Stop 20Hz Shake" : "Test 20Hz Shake")) {
+                mTestShakeActive = !mTestShakeActive;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggles the 20Hz spinout / airborne tumble shake effect.");
+            if (mTestShakeActive) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "(Active)");
+            }
             ImGui::Unindent();
         }
 
