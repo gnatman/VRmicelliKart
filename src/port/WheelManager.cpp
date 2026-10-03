@@ -4,6 +4,7 @@
 #include "ship/config/ConsoleVariable.h"
 #include "ship/utils/StringHelper.h"
 #include <spdlog/spdlog.h>
+#include <algorithm>
 
 extern "C" {
 #include "common_structs.h"
@@ -55,6 +56,12 @@ void WheelManager::LoadSettings() {
     mDriftThreshold = CVarGetFloat("gWheel.DriftThreshold", 0.5f);
     mFFBMasterGain = CVarGetInteger("gWheel.FFBMasterGain", 100);
     mCombineInputs = CVarGetInteger("gWheel.CombineInputs", 1);
+
+    mSoftLockEnabled = CVarGetInteger("gWheel.SoftLockEnabled", 1);
+    mHardwareDOR = CVarGetInteger("gWheel.HardwareDOR", 900);
+    mSoftLockAngle = CVarGetFloat("gWheel.SoftLockAngle", 90.0f);
+    mSoftLockStiffness = CVarGetFloat("gWheel.SoftLockStiffness", 1.0f);
+    mFFBInvert = CVarGetInteger("gWheel.FFBInvert", 1);
 
     mJoystickGuid = CVarGetString("gWheel.JoystickGuid", "");
 
@@ -129,6 +136,12 @@ void WheelManager::SaveSettings() {
     CVarSetFloat("gWheel.ThrottleThreshold", mThrottleThreshold);
     CVarSetFloat("gWheel.BrakeThreshold", mBrakeThreshold);
     CVarSetFloat("gWheel.DriftThreshold", mDriftThreshold);
+
+    CVarSetInteger("gWheel.SoftLockEnabled", mSoftLockEnabled ? 1 : 0);
+    CVarSetInteger("gWheel.HardwareDOR", mHardwareDOR);
+    CVarSetFloat("gWheel.SoftLockAngle", mSoftLockAngle);
+    CVarSetFloat("gWheel.SoftLockStiffness", mSoftLockStiffness);
+    CVarSetInteger("gWheel.FFBInvert", mFFBInvert ? 1 : 0);
 
     CVarSetString("gWheel.JoystickGuid", mJoystickGuid.c_str());
 
@@ -218,7 +231,10 @@ void WheelManager::OpenJoystick(int index) {
                 if (features & SDL_HAPTIC_INERTIA) SPDLOG_INFO(" - Supports INERTIA");
                 if (features & SDL_HAPTIC_FRICTION) SPDLOG_INFO(" - Supports FRICTION");
                 if (features & SDL_HAPTIC_CUSTOM) SPDLOG_INFO(" - Supports CUSTOM");
-                if (features & SDL_HAPTIC_GAIN) SPDLOG_INFO(" - Supports GAIN");
+                if (features & SDL_HAPTIC_GAIN) {
+                    SPDLOG_INFO(" - Supports GAIN");
+                    SDL_HapticSetGain(mHaptic, mFFBMasterGain);
+                }
                 if (features & SDL_HAPTIC_AUTOCENTER) {
                     SPDLOG_INFO(" - Supports AUTOCENTER");
                     if (SDL_HapticSetAutocenter(mHaptic, 0) == 0) {
@@ -239,42 +255,7 @@ void WheelManager::OpenJoystick(int index) {
                     SPDLOG_INFO(" - Rumble NOT supported");
                 }
 
-                SDL_HapticEffect effect;
-                memset(&effect, 0, sizeof(SDL_HapticEffect));
-                effect.type = SDL_HAPTIC_CONSTANT;
-                effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
-                effect.constant.direction.dir[0] = 1;
-                effect.constant.level = 0;
-                effect.constant.length = SDL_HAPTIC_INFINITY;
-                mConstantEffectId = SDL_HapticNewEffect(mHaptic, &effect);
-                if (mConstantEffectId != -1) {
-                    if (SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1) != 0) {
-                        SPDLOG_ERROR("Failed to run CONSTANT effect: {}", SDL_GetError());
-                    } else {
-                        SPDLOG_INFO("CONSTANT effect created and running.");
-                    }
-                } else {
-                    SPDLOG_ERROR("Failed to create CONSTANT effect: {}", SDL_GetError());
-                }
-
-                memset(&effect, 0, sizeof(SDL_HapticEffect));
-                effect.type = SDL_HAPTIC_SINE;
-                effect.periodic.direction.type = SDL_HAPTIC_CARTESIAN;
-                effect.periodic.direction.dir[0] = 1;
-                effect.periodic.period = 50; // 50ms = 20Hz shake
-                effect.periodic.magnitude = 0;
-                effect.periodic.length = SDL_HAPTIC_INFINITY;
-                mSineEffectId = SDL_HapticNewEffect(mHaptic, &effect);
-                if (mSineEffectId != -1) {
-                    if (SDL_HapticRunEffect(mHaptic, mSineEffectId, 1) != 0) {
-                        SPDLOG_ERROR("Failed to run SINE effect: {}", SDL_GetError());
-                    } else {
-                        SPDLOG_INFO("SINE effect created and running.");
-                    }
-                } else {
-                    SPDLOG_ERROR("Failed to create SINE effect: {}", SDL_GetError());
-                }
-                
+                InitHapticEffects();
                 SPDLOG_INFO("Haptic Feedback Initialization Attempt Complete!");
             } else {
                 mHapticErrorStr = SDL_GetError();
@@ -287,13 +268,87 @@ void WheelManager::OpenJoystick(int index) {
     }
 }
 
+void WheelManager::InitHapticEffects() {
+    if (!mHaptic) return;
+
+    if (mConstantEffectId == -1) {
+        SDL_HapticEffect effect;
+        memset(&effect, 0, sizeof(SDL_HapticEffect));
+        effect.type = SDL_HAPTIC_CONSTANT;
+        effect.constant.direction.type = SDL_HAPTIC_STEERING_AXIS;
+        effect.constant.direction.dir[0] = 1;
+        effect.constant.level = 0;
+        effect.constant.length = SDL_HAPTIC_INFINITY;
+        mConstantEffectId = SDL_HapticNewEffect(mHaptic, &effect);
+        mConstantDirectionType = SDL_HAPTIC_STEERING_AXIS;
+
+        if (mConstantEffectId == -1) {
+            SPDLOG_WARN("STEERING_AXIS constant effect failed, trying CARTESIAN: {}", SDL_GetError());
+            effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
+            mConstantEffectId = SDL_HapticNewEffect(mHaptic, &effect);
+            mConstantDirectionType = SDL_HAPTIC_CARTESIAN;
+        }
+
+        if (mConstantEffectId != -1) {
+            if (SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1) != 0) {
+                SPDLOG_ERROR("Failed to run CONSTANT effect: {}", SDL_GetError());
+            } else {
+                SPDLOG_INFO("CONSTANT effect created and running with type {}.",
+                    (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
+            }
+        } else {
+            SPDLOG_ERROR("Failed to create CONSTANT effect: {}", SDL_GetError());
+        }
+    }
+
+    if (mSineEffectId == -1) {
+        SDL_HapticEffect effect;
+        memset(&effect, 0, sizeof(SDL_HapticEffect));
+        effect.type = SDL_HAPTIC_SINE;
+        effect.periodic.direction.type = mConstantDirectionType;
+        effect.periodic.direction.dir[0] = 1;
+        effect.periodic.period = 50; // 50ms = 20Hz shake
+        effect.periodic.magnitude = 0;
+        effect.periodic.length = SDL_HAPTIC_INFINITY;
+        mSineEffectId = SDL_HapticNewEffect(mHaptic, &effect);
+        if (mSineEffectId != -1) {
+            if (SDL_HapticRunEffect(mHaptic, mSineEffectId, 1) != 0) {
+                SPDLOG_ERROR("Failed to run SINE effect: {}", SDL_GetError());
+            } else {
+                SPDLOG_INFO("SINE effect created and running.");
+            }
+        } else {
+            SPDLOG_ERROR("Failed to create SINE effect: {}", SDL_GetError());
+        }
+    }
+}
+
+void WheelManager::ReInitHapticEffects() {
+    if (!mHaptic) return;
+    if (mConstantEffectId != -1) {
+        SDL_HapticDestroyEffect(mHaptic, mConstantEffectId);
+        mConstantEffectId = -1;
+    }
+    if (mSineEffectId != -1) {
+        SDL_HapticDestroyEffect(mHaptic, mSineEffectId);
+        mSineEffectId = -1;
+    }
+    InitHapticEffects();
+}
+
 void WheelManager::CloseJoystick() {
     if (mHaptic) {
+        if (mConstantEffectId != -1) {
+            SDL_HapticDestroyEffect(mHaptic, mConstantEffectId);
+            mConstantEffectId = -1;
+        }
+        if (mSineEffectId != -1) {
+            SDL_HapticDestroyEffect(mHaptic, mSineEffectId);
+            mSineEffectId = -1;
+        }
         SDL_HapticClose(mHaptic);
         mHaptic = nullptr;
         mHapticRumbleSupported = false;
-        mConstantEffectId = -1;
-        mSineEffectId = -1;
     }
     if (mJoystick) {
         SDL_JoystickClose(mJoystick);
@@ -305,80 +360,135 @@ void WheelManager::CloseJoystick() {
 void WheelManager::UpdateFFB() {
     if (!mHaptic) return;
 
-    if (gGamestate != 2) { // 2 = RACING
-        if (mConstantEffectId != -1) {
-            SDL_HapticEffect effect;
-            memset(&effect, 0, sizeof(SDL_HapticEffect));
-            effect.type = SDL_HAPTIC_CONSTANT;
-            effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
-            effect.constant.direction.dir[0] = 1;
-            effect.constant.level = 0;
-            effect.constant.length = SDL_HAPTIC_INFINITY;
-            SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
+    // DirectInput safety monitor: If constant effect was stopped (e.g. driver stall trip or lost focus), restart it
+    if (mConstantEffectId != -1) {
+        int status = SDL_HapticGetEffectStatus(mHaptic, mConstantEffectId);
+        mLastFFBEffectStatus = status;
+        if (status == 0) {
+            // Auto re-run effect to keep it alive
+            SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1);
         }
-        if (mSineEffectId != -1) {
-            SDL_HapticEffect effect;
-            memset(&effect, 0, sizeof(SDL_HapticEffect));
-            effect.type = SDL_HAPTIC_SINE;
-            effect.periodic.direction.type = SDL_HAPTIC_CARTESIAN;
-            effect.periodic.direction.dir[0] = 1;
-            effect.periodic.period = 50;
-            effect.periodic.magnitude = 0;
-            effect.periodic.length = SDL_HAPTIC_INFINITY;
-            SDL_HapticUpdateEffect(mHaptic, mSineEffectId, &effect);
-        }
-        return;
     }
-
-    Player* p = &gPlayers[0]; // Assuming local VR player is P1
 
     int16_t constantForce = 0;
     int16_t sineMagnitude = 0;
+    int16_t softLockForce = 0;
 
-    // 1. Auto-center based on speed and current wheel angle
-    if (mSteeringAxis != -1 && p->speed > 5.0f) {
+    // Direct Drive Soft Lock / Rotation Limit Bumpstop
+    if (mSteeringAxis != -1 && mJoystick) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
         int32_t centered = (int32_t)raw - (int32_t)mSteeringCenter;
-        float speedFactor = p->speed / 60.0f; // Max speed approx 60
-        if (speedFactor > 1.0f) speedFactor = 1.0f;
-        
-        // Push back against the wheel
-        constantForce = (int16_t)(-centered * speedFactor * 0.3f);
-    }
 
-    // 2. Lateral G (Hopping and Drifting)
-    if ((p->effects & 0x10) || p->hopVerticalOffset > 0.0f) { // DRIFTING_EFFECT = 0x10
-        // Direction is based on turning state
-        if (p->kartProps & 0x2) { // RIGHT_TURN
-            constantForce += 15000;
-        } else if (p->kartProps & 0x4) { // LEFT_TURN
-            constantForce -= 15000;
+        float halfRange = (float)mHardwareDOR * 0.5f;
+        if (halfRange < 1.0f) halfRange = 1.0f;
+        mCurrentAngleDeg = ((float)centered / 32768.0f) * halfRange;
+
+        if (mSoftLockEnabled) {
+            float limitRatio = std::clamp(mSoftLockAngle / halfRange, 0.05f, 1.0f);
+            int32_t rawLimit = (int32_t)(32767.0f * limitRatio);
+
+            if (abs(centered) > rawLimit) {
+                int32_t overshoot = abs(centered) - rawLimit;
+                int32_t remaining = std::max(1, 32767 - rawLimit);
+                float penetration = (float)overshoot / (float)remaining;
+
+                // Progressive direct drive bumpstop:
+                // Start with a noticeable 30% barrier, ramping smoothly up to 100% over initial penetration
+                float ramp = std::min(1.0f, penetration * 4.0f);
+                float wallRatio = (0.30f + 0.70f * ramp) * mSoftLockStiffness;
+                if (wallRatio > 1.0f) wallRatio = 1.0f;
+
+                int16_t force = (int16_t)(32767.0f * wallRatio);
+                // Base direction: if turned right (positive centered), push left (negative force)
+                softLockForce = (centered > 0) ? -force : force;
+            }
+        }
+    }
+    mLastSoftLockForce = softLockForce;
+
+    if (gGamestate != 2) { // 2 = RACING (in menus / pause)
+        constantForce = softLockForce;
+    } else { // Racing
+        Player* p = &gPlayers[0]; // Assuming local VR player is P1
+        static f32 lastSpeed = 0.0f;
+
+        if (softLockForce != 0) {
+            // Soft lock wall takes absolute priority over gameplay forces
+            constantForce = softLockForce;
+            lastSpeed = p->speed;
+        } else {
+            // 1. Auto-center based on speed and current wheel angle
+            if (mSteeringAxis != -1 && p->speed > 5.0f) {
+                int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
+                int32_t centered = (int32_t)raw - (int32_t)mSteeringCenter;
+                float speedFactor = p->speed / 60.0f; // Max speed approx 60
+                if (speedFactor > 1.0f) speedFactor = 1.0f;
+                
+                // Push back against the wheel
+                constantForce = (int16_t)(-centered * speedFactor * 0.3f);
+            }
+
+            // 2. Lateral G (Hopping and Drifting)
+            if ((p->effects & 0x10) || p->hopVerticalOffset > 0.0f) { // DRIFTING_EFFECT = 0x10
+                // Direction is based on turning state
+                if (p->kartProps & 0x2) { // RIGHT_TURN
+                    constantForce += 15000;
+                } else if (p->kartProps & 0x4) { // LEFT_TURN
+                    constantForce -= 15000;
+                }
+            }
+
+            // 3. Jolt (Hit by item / tumble)
+            if (lastSpeed - p->speed > 15.0f || (p->triggers & 0x01404106)) { // HIT_TRIGGERS
+                constantForce = (rand() % 2 == 0) ? 32767 : -32767;
+            }
+            lastSpeed = p->speed;
+        }
+
+        // 4. Shake (Spinning out)
+        if (p->kartProps & 0x4000 || p->triggers & 0x200000) { // DRIVING_SPINOUT or SPINOUT_TRIGGER
+            sineMagnitude = 30000;
+        }
+
+        // 5. Rumble (Offroad)
+        if (mHapticRumbleSupported) {
+            bool offroad = (p->tyres[0].surfaceType == 0x07 || // SAND_OFFROAD
+                            p->tyres[0].surfaceType == 0x0B || // SNOW_OFFROAD
+                            p->tyres[0].surfaceType == 0x0D || // DIRT_OFFROAD
+                            p->tyres[0].surfaceType == 0x08 || // GRASS
+                            p->tyres[0].surfaceType == 0xFD);  // OUT_OF_BOUNDS
+            
+            if (offroad && p->speed > 5.0f) {
+                float intensity = std::min(1.0f, p->speed / 40.0f);
+                SDL_HapticRumblePlay(mHaptic, intensity, 100);
+            }
         }
     }
 
-    // 3. Jolt (Hit by item / tumble)
-    // We check if the velocity changed drastically or if tumbled
-    static f32 lastSpeed = 0.0f;
-    if (lastSpeed - p->speed > 15.0f || (p->triggers & 0x01404106)) { // HIT_TRIGGERS
-        constantForce = (rand() % 2 == 0) ? 32767 : -32767;
+    // Invert force direction if configured (needed for wheels whose motor coordinate is flipped)
+    if (mFFBInvert) {
+        constantForce = -constantForce;
     }
-    lastSpeed = p->speed;
 
-    // 4. Shake (Spinning out)
-    if (p->kartProps & 0x4000 || p->triggers & 0x200000) { // DRIVING_SPINOUT or SPINOUT_TRIGGER
-        sineMagnitude = 30000;
-    }
+    mLastCommandedForce = constantForce;
 
     // Update Constant Effect
     if (mConstantEffectId != -1) {
         SDL_HapticEffect effect;
         memset(&effect, 0, sizeof(SDL_HapticEffect));
         effect.type = SDL_HAPTIC_CONSTANT;
-        effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
+        effect.constant.direction.type = mConstantDirectionType;
         effect.constant.direction.dir[0] = 1;
         effect.constant.level = std::max(-32768, std::min(32767, (int)constantForce));
         effect.constant.length = SDL_HAPTIC_INFINITY;
-        SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
+        mLastFFBUpdateResult = SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
+        if (mLastFFBUpdateResult != 0) {
+            mLastFFBError = SDL_GetError();
+            // Attempt to re-run effect to re-acquire device if lost
+            SDL_HapticRunEffect(mHaptic, mConstantEffectId, 1);
+        } else {
+            mLastFFBError.clear();
+        }
     }
 
     // Update Sine Effect
@@ -386,26 +496,12 @@ void WheelManager::UpdateFFB() {
         SDL_HapticEffect effect;
         memset(&effect, 0, sizeof(SDL_HapticEffect));
         effect.type = SDL_HAPTIC_SINE;
-        effect.periodic.direction.type = SDL_HAPTIC_CARTESIAN;
+        effect.periodic.direction.type = mConstantDirectionType;
         effect.periodic.direction.dir[0] = 1;
         effect.periodic.period = 50;
         effect.periodic.magnitude = sineMagnitude;
         effect.periodic.length = SDL_HAPTIC_INFINITY;
         SDL_HapticUpdateEffect(mHaptic, mSineEffectId, &effect);
-    }
-
-    // 5. Rumble (Offroad)
-    if (mHapticRumbleSupported) {
-        bool offroad = (p->tyres[0].surfaceType == 0x07 || // SAND_OFFROAD
-                        p->tyres[0].surfaceType == 0x0B || // SNOW_OFFROAD
-                        p->tyres[0].surfaceType == 0x0D || // DIRT_OFFROAD
-                        p->tyres[0].surfaceType == 0x08 || // GRASS
-                        p->tyres[0].surfaceType == 0xFD);  // OUT_OF_BOUNDS
-        
-        if (offroad && p->speed > 5.0f) {
-            float intensity = std::min(1.0f, p->speed / 40.0f);
-            SDL_HapticRumblePlay(mHaptic, intensity, 100);
-        }
     }
 }
 
@@ -512,8 +608,18 @@ void WheelManager::ProcessInput(OSContPad* pad) {
         
         if (mSteeringInvert) normalized = -normalized;
 
-        // Apply Saturation (Steering Lock)
-        normalized /= mSteeringSaturation;
+        // Apply Saturation (Steering Lock / Soft Lock alignment)
+        float saturation = mSteeringSaturation;
+        if (mSoftLockEnabled) {
+            float halfRange = (float)mHardwareDOR * 0.5f;
+            if (halfRange > 0.0f) {
+                float softLockRatio = mSoftLockAngle / halfRange;
+                saturation = std::min(saturation, softLockRatio);
+            }
+        }
+        if (saturation < 0.01f) saturation = 0.01f;
+
+        normalized /= saturation;
         if (normalized > 1.0f) normalized = 1.0f;
         if (normalized < -1.0f) normalized = -1.0f;
         
@@ -720,12 +826,101 @@ void WheelManager::DrawSettings() {
             if (ImGui::SliderFloat("Linearity", &mSteeringLinearity, 0.5f, 3.0f, "%.2f")) SaveSettings();
             if (ImGui::SliderFloat("Arcade S-Curve Blend", &mSteeringSCurve, 0.0f, 1.0f, "%.2f")) SaveSettings();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("0.0 = Linear/Gamma, 1.0 = Snappy Arcade S-Curve (Gentle center, aggressive turn).");
-            
-            // Visualizer
+
+            ImGui::Separator();
+            ImGui::Text("Rotation Limit / Soft Lock (Direct Drive):");
+            if (ImGui::Checkbox("Enable FFB Soft Lock Wall", &mSoftLockEnabled)) {
+                SaveSettings();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Uses Direct Drive motor force to create a physical hard-stop wall at the target rotation angle.");
+
+            if (mSoftLockEnabled) {
+                if (ImGui::InputInt("Wheel Hardware Range (DOR)", &mHardwareDOR, 10, 90)) {
+                    if (mHardwareDOR < 90) mHardwareDOR = 90;
+                    if (mHardwareDOR > 2520) mHardwareDOR = 2520;
+                    SaveSettings();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Type or step the exact total rotation angle set in your Thrustmaster Control Panel (e.g. 900 or 1080).");
+
+                ImGui::SameLine();
+                if (ImGui::SmallButton("900 deg")) { mHardwareDOR = 900; SaveSettings(); }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("1080 deg")) { mHardwareDOR = 1080; SaveSettings(); }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("540 deg")) { mHardwareDOR = 540; SaveSettings(); }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("360 deg")) { mHardwareDOR = 360; SaveSettings(); }
+
+                if (ImGui::InputFloat("Soft Lock Angle (Each Side)", &mSoftLockAngle, 5.0f, 15.0f, "%.0f deg")) {
+                    if (mSoftLockAngle < 15.0f) mSoftLockAngle = 15.0f;
+                    if (mSoftLockAngle > (float)mHardwareDOR * 0.5f) mSoftLockAngle = (float)mHardwareDOR * 0.5f;
+                    SaveSettings();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Target angle from center before hitting the motor bumpstop. 90 deg = 180 deg total lock-to-lock.");
+
+                ImGui::SameLine();
+                if (ImGui::SmallButton("+/-90 deg")) { mSoftLockAngle = 90.0f; SaveSettings(); }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("+/-180 deg")) { mSoftLockAngle = 180.0f; SaveSettings(); }
+
+                if (ImGui::SliderFloat("Wall Stiffness", &mSoftLockStiffness, 0.2f, 2.0f, "%.2f")) {
+                    SaveSettings();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strongly the motor pushes back when hitting the limit.");
+            }
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Wheel Telemetry & Diagnostics:");
+
             int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
-            float val = (float)((int32_t)raw - (int32_t)mSteeringCenter) / 32768.0f;
-            if (mSteeringInvert) val = -val;
-            ImGui::ProgressBar((val + 1.0f) / 2.0f, ImVec2(-1, 0), StringHelper::Sprintf("Raw: %d", raw).c_str());
+            float currentAngle = mCurrentAngleDeg;
+            float halfDOR = (float)mHardwareDOR * 0.5f;
+            if (halfDOR < 1.0f) halfDOR = 1.0f;
+            
+            // Visual progress bar from [-halfDOR, +halfDOR]
+            float normAngle = std::clamp((currentAngle + halfDOR) / (halfDOR * 2.0f), 0.0f, 1.0f);
+            ImGui::ProgressBar(normAngle, ImVec2(-1, 0), StringHelper::Sprintf("Angle: %+.1f deg (Raw: %d)", currentAngle, raw).c_str());
+
+            // Wall bumpstop status
+            if (mSoftLockEnabled) {
+                if (abs(currentAngle) > mSoftLockAngle) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f),
+                        ICON_FA_EXCLAMATION_TRIANGLE " BUMPSTOP ENGAGED: %s by %.1f deg",
+                        (currentAngle > 0) ? "RIGHT" : "LEFT", abs(currentAngle) - mSoftLockAngle);
+                } else {
+                    ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), 
+                        "Within Safe Range (+-%.0f deg)", mSoftLockAngle);
+                }
+            }
+
+            ImGui::Text("Commanded FFB Force: %d (Soft Lock: %d)", mLastCommandedForce, mLastSoftLockForce);
+
+            // Effect Status & Driver Health
+            const char* statusStr = "Not Created";
+            if (mConstantEffectId != -1) {
+                if (mLastFFBEffectStatus == 1) statusStr = "Playing";
+                else if (mLastFFBEffectStatus == 0) statusStr = "Stopped (Auto-restarting)";
+                else statusStr = "Status Query Error";
+            }
+            ImGui::Text("FFB Motor Status: %s (Type: %s)", statusStr, 
+                (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
+
+            if (mLastFFBUpdateResult == 0) {
+                ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK");
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "DirectInput Update Error: %s", 
+                    mLastFFBError.empty() ? "Failed" : mLastFFBError.c_str());
+            }
+
+            if (ImGui::Checkbox("Invert Force Feedback Direction", &mFFBInvert)) {
+                SaveSettings();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check this if the wheel pushes outward into the turn instead of resisting back toward center.");
+
+            ImGui::SameLine();
+            if (ImGui::Button("Re-arm / Restart FFB")) {
+                ReInitHapticEffects();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Destroys and recreates the DirectInput force feedback effects if the motor stopped responding.");
             ImGui::Unindent();
         }
 

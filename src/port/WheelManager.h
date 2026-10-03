@@ -44,6 +44,18 @@ private:
     void CloseJoystick();
     void RefreshJoysticks();
     void UpdateFFB();
+    void InitHapticEffects();
+    void ReInitHapticEffects();
+
+    // Telemetry & Diagnostics
+    float mCurrentAngleDeg = 0.0f;
+    int16_t mLastCommandedForce = 0;
+    int16_t mLastSoftLockForce = 0;
+    int mLastFFBUpdateResult = 0;
+    int mLastFFBEffectStatus = 0;
+    std::string mLastFFBError;
+    uint8_t mConstantDirectionType = SDL_HAPTIC_STEERING_AXIS;
+    bool mFFBInvert = false;
 
     // Mapping and Settings
     int mSteeringAxis = -1;
@@ -66,6 +78,12 @@ private:
     
     // Native high-resolution steer value, set each frame in ProcessInput
     float mNativeSteer = 0.0f;
+    
+    // Rotation Limit / Soft Lock (for Direct Drive & FFB wheels)
+    bool mSoftLockEnabled = true;
+    int mHardwareDOR = 900;       // Operating range in degrees set in wheel driver
+    float mSoftLockAngle = 90.0f; // Target max rotation on each side (90 deg = 180 deg total)
+    float mSoftLockStiffness = 1.0f;
     
     float mThrottleThreshold = 0.5f;
     float mBrakeThreshold = 0.5f;
