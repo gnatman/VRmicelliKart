@@ -265,8 +265,16 @@ void TelemetryManager::Update() {
     packet.EventFlags = 0;
     if (p->hopFrameCounter > 0) packet.EventFlags |= TELEMETRY_EVENT_JUMPING;
     if (p->boostTimer > 0) packet.EventFlags |= TELEMETRY_EVENT_BOOSTING;
-    if (p->effects & 0x4000) packet.EventFlags |= TELEMETRY_EVENT_HIT;
-    if (p->effects & 0x10000000) packet.EventFlags |= TELEMETRY_EVENT_SPINOUT;
+
+    bool isHit = ((p->effects & (0x400 | 0x4000 | 0x01000000 | HIT_BY_ITEM_EFFECT | LIGHTNING_EFFECT)) != 0) ||
+                 ((p->kartGraphics & CRASH) != 0);
+    if (isHit) packet.EventFlags |= TELEMETRY_EVENT_HIT;
+
+    bool isSpinout = ((p->effects & (0x40 | 0x80 | 0x20000 | 0x10000000)) != 0) ||
+                     ((p->kartProps & DRIVING_SPINOUT) != 0) ||
+                     ((p->kartGraphics & WHIRRR) != 0) ||
+                     ((p->triggers & (START_SPINOUT_TRIGGER | SPINOUT_TRIGGER | DRIVING_SPINOUT_TRIGGER | HIT_BANANA_TRIGGER)) != 0);
+    if (isSpinout) packet.EventFlags |= TELEMETRY_EVENT_SPINOUT;
 
     sendto(pImpl->socket, (const char*)&packet, sizeof(packet), 0, (sockaddr*)&pImpl->destAddr, sizeof(pImpl->destAddr));
 }
@@ -321,6 +329,22 @@ void TelemetryManager::DrawSettings() {
             Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
         ImGui::TextDisabled("Clamp acceleration to prevent hitting platform limits. ~30 = ~3G.");
+
+        ImGui::Separator();
+        ImGui::Text("Live Telemetry Status:");
+        if (gGamestate == RACING) {
+            Player* p = &gPlayers[0];
+            bool isSpin = ((p->effects & (0x40 | 0x80 | 0x20000 | 0x10000000)) != 0) ||
+                          ((p->kartProps & DRIVING_SPINOUT) != 0) ||
+                          ((p->kartGraphics & WHIRRR) != 0) ||
+                          ((p->triggers & (START_SPINOUT_TRIGGER | SPINOUT_TRIGGER | DRIVING_SPINOUT_TRIGGER | HIT_BANANA_TRIGGER)) != 0);
+            ImGui::Text("Spinout Active (Bit 3): %s", isSpin ? "YES" : "No");
+            ImGui::Text("Yaw: %.1f deg", (float)p->rotation[1] * (360.0f / 65536.0f));
+            ImGui::Text("Ground Speed: %.1f km/h", p->speed * mSpeedFactor);
+            ImGui::Text("Effects: 0x%08X", p->effects);
+        } else {
+            ImGui::TextDisabled("Status: Not in active race");
+        }
     }
 }
 

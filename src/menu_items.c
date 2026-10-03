@@ -3013,7 +3013,11 @@ Gfx* func_80095BD0(Gfx* displayListHead, u8* arg1, f32 arg2, f32 arg3, u32 arg4,
 
     displayListHead = AddTextMatrix(displayListHead, mf);
     // gSPMatrix(displayListHead++, mtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-    gDPLoadTextureTile_4b(displayListHead++, arg1, G_IM_FMT_I, arg4, 0, 0, 0, arg4, arg5 + 2, 0,
+    // lrs/lrt use arg4-1 / arg5-1 (last-pixel indices, 0-based) so that
+    // GfxDpLoadTile computes tile_width = (arg4/2) bytes, not (arg4/2)+1.
+    // The off-by-one with arg4 causes ImportTextureI4 to decode with a 2-pixel
+    // wider stride, producing the diagonal-shearing artifact on menu/pause text.
+    gDPLoadTextureTile_4b(displayListHead++, arg1, G_IM_FMT_I, arg4, 0, 0, 0, arg4 - 1, arg5 - 1, 0,
                           G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
                           G_TX_NOLOD);
     switch (arg4) {
@@ -3056,7 +3060,11 @@ Gfx* func_80095BD0_wide_right(Gfx* displayListHead, u8* arg1, f32 arg2, f32 arg3
     displayListHead = AddTextMatrix(displayListHead, mf);
     // gSPMatrix(displayListHead++, VIRTUAL_TO_PHYSICAL(&gGfxPool->mtxEffect[gMatrixEffectCount++]),
     //           G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-    gDPLoadTextureTile_4b(displayListHead++, arg1, G_IM_FMT_I, arg4, 0, 0, 0, arg4, arg5 + 2, 0,
+    // lrs/lrt use arg4-1 / arg5-1 (last-pixel indices, 0-based) so that
+    // GfxDpLoadTile computes tile_width = (arg4/2) bytes, not (arg4/2)+1.
+    // The off-by-one with arg4 causes ImportTextureI4 to decode with a 2-pixel
+    // wider stride, producing the diagonal-shearing artifact on menu/pause text.
+    gDPLoadTextureTile_4b(displayListHead++, arg1, G_IM_FMT_I, arg4, 0, 0, 0, arg4 - 1, arg5 - 1, 0,
                           G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
                           G_TX_NOLOD);
     switch (arg4) {

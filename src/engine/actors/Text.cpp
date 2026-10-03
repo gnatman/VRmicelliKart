@@ -379,7 +379,10 @@ void AText::DrawText3D(Camera* camera) { // Based on func_80095BD0
         }
 
         //printf("tex texture %p width %d height %d mode %d col %f\n", tex.Texture, tex.width, tex.height, tex.mode, tex.column);
-        gDPLoadTextureTile_4b(gDisplayListHead++, (Gfx*)tex.Texture, G_IM_FMT_I, tex.width, 0, 0, 0, tex.width, tex.height + 2, 0,
+        // lrs/lrt are last-pixel indices (0-based): using tex.width gives
+        // tile_width = (tex.width/2)+1 bytes, causing ImportTextureI4 to decode
+        // with a too-wide stride and produce the diagonal-shearing artifact.
+        gDPLoadTextureTile_4b(gDisplayListHead++, (Gfx*)tex.Texture, G_IM_FMT_I, tex.width, 0, 0, 0, tex.width - 1, tex.height - 1, 0,
                             G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
                             G_TX_NOLOD);
 

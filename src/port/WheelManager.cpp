@@ -524,9 +524,13 @@ void WheelManager::UpdateFFB() {
         // 4. Spinout & Airborne Item-Hit Tumble Shake (20 Hz synthesized wave in constant force)
         bool isSpinout = ((p->kartProps & DRIVING_SPINOUT) != 0) || 
                          ((p->effects & 0x80) != 0) || 
-                         ((p->effects & 0x40) != 0);
+                         ((p->effects & 0x40) != 0) ||
+                         ((p->effects & 0x20000) != 0);
 
-        bool shouldShake = isSpinout || itemHit || mTestShakeActive;
+        bool airborneTumble = ((p->effects & (0x400 | HIT_BY_ITEM_EFFECT | 0x01000000 | HIT_EFFECT)) != 0) ||
+                              ((p->kartGraphics & CRASH) != 0);
+
+        bool shouldShake = isSpinout || airborneTumble || mTestShakeActive;
         mIsSpinoutActive = shouldShake;
         int16_t spinoutForce = 0;
         static int sSpinoutStep = 0;
