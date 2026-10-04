@@ -668,6 +668,83 @@ void PortMenu::AddVR() {
             .DefaultValue(true)
             .Tooltip("Render 3D steering wheel and tires in first-person Cockpit mode."));
 
+    AddWidget(path, "Front Tires Distance: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRTireZ")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(1.0f)
+            .Max(12.0f)
+            .DefaultValue(4.31f)
+            .Tooltip("Forward distance of the front tires from driver head."));
+
+    AddWidget(path, "Front Tires Height: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRTireY")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(-15.0f)
+            .Max(-2.0f)
+            .DefaultValue(-4.13f)
+            .Tooltip("Vertical height of the front tires relative to driver head (more negative = lower to ground)."));
+
+    AddWidget(path, "Front Tires Spacing: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRTireX")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(1.0f)
+            .Max(8.0f)
+            .DefaultValue(3.84f)
+            .Tooltip("Lateral distance of front tires from kart centerline."));
+
+    AddWidget(path, "Front Tires Scale: %.3f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRTireScale")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(0.005f)
+            .Max(0.040f)
+            .DefaultValue(0.020f)
+            .Tooltip("Scale factor of the front tires."));
+
+    AddWidget(path, "Steering Wheel Distance: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRWheelZ")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(0.5f)
+            .Max(8.0f)
+            .DefaultValue(1.48f)
+            .Tooltip("Forward distance of the steering wheel from driver head."));
+
+    AddWidget(path, "Steering Wheel Height: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRWheelY")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(-6.0f)
+            .Max(0.0f)
+            .DefaultValue(-2.40f)
+            .Tooltip("Vertical height of steering wheel relative to driver head."));
+
+    AddWidget(path, "Steering Wheel Scale: %.3f", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRWheelScale")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(FloatSliderOptions()
+            .Min(0.005f)
+            .Max(0.040f)
+            .DefaultValue(0.020f)
+            .Tooltip("Scale factor of the steering wheel."));
+
     AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRSupersampling")
         .Options(FloatSliderOptions()

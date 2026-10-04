@@ -6,11 +6,14 @@
 #include "port/WheelManager.h"
 #include "port/interpolation/FrameInterpolation.h"
 #include "engine/Matrix.h"
+#include "port/Game.h"
 
 extern "C" {
 #include "racing/math_util.h"
 #include "main.h"
 #include "defines.h"
+#include "common_structs.h"
+#include "actor_types.h"
 }
 
 static bool sCockpitInitialized = false;
@@ -362,10 +365,25 @@ static void DrawTireGeometry() {
     }
 }
 
-static void DrawDashboardGeometry() {
-    gSPVertex(gDisplayListHead++, (uintptr_t)sDashVtx, 10, 0);
+static void GetRainbowColor(float phase, uint8_t& r, uint8_t& g, uint8_t& b) {
+    float h = std::fmod(phase, 1.0f) * 6.0f;
+    int sector = static_cast<int>(h);
+    float frac = h - static_cast<float>(sector);
+    float q = 1.0f - frac;
+    switch (sector) {
+        case 0: r = 255; g = static_cast<uint8_t>(frac * 255.0f); b = 0; break;
+        case 1: r = static_cast<uint8_t>(q * 255.0f); g = 255; b = 0; break;
+        case 2: r = 0; g = 255; b = static_cast<uint8_t>(frac * 255.0f); break;
+        case 3: r = 0; g = static_cast<uint8_t>(q * 255.0f); b = 255; break;
+        case 4: r = static_cast<uint8_t>(frac * 255.0f); g = 0; b = 255; break;
+        case 5: default: r = 255; g = 0; b = static_cast<uint8_t>(q * 255.0f); break;
+    }
+}
 
-    // Instrument cowl face
+static void DrawDashboardGeometry() {
+    // 1. Dashboard Cowl (hood)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sDashVtx, 10, 0);
+    // Cowl face
     gSP2Triangles(gDisplayListHead++,
         0, 1, 2, 0,
         0, 2, 3, 0);
@@ -386,6 +404,7 @@ static void DrawDashboardGeometry() {
         4, 9, 5, 0);
 }
 
+
 void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 screenId) {
     if (!sCockpitInitialized) {
         FirstPersonCockpit_Init();
@@ -405,7 +424,7 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
         player->pos[2] + player->orientationMatrix[2][1] * headHeight
     };
 
-    // Build the Cockpit Base 4x4 matrix using the player's true world orientation
+    // Build the Cockpit Base 4x4 matrix using the player's true world orientation (anchored at driver head)
     Mat4 mtxCockpitBase;
     mtxCockpitBase[0][0] =  player->orientationMatrix[0][0];
     mtxCockpitBase[0][1] =  player->orientationMatrix[1][0];
@@ -427,11 +446,23 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     mtxCockpitBase[3][2] = basePos[2];
     mtxCockpitBase[3][3] = 1.0f;
 
-    // Set 3D render state: smooth shading, Z-buffer, opaque surface, vertex color shading
+    // Set 3D render state: smooth shading, Z-buffer, opaque surface
     gSPSetGeometryMode(gDisplayListHead++, G_SHADING_SMOOTH | G_ZBUFFER);
     gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_CULL_BOTH);
     gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
-    gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+
+    // Star Power: Smooth cycling rainbow lighting across cockpit geometry
+    bool isStarActive = ((player->effects & STAR_EFFECT) != 0);
+    uint8_t starR = 255, starG = 255, starB = 255;
+    if (isStarActive) {
+        float phase = std::fmod((float)gCourseTimer * 0.08f, 1.0f);
+        GetRainbowColor(phase, starR, starG, starB);
+        gDPSetPrimColor(gDisplayListHead++, 0, 0, starR, starG, starB, 180);
+        gDPSetCombineLERP(gDisplayListHead++, PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, 1,
+                                              PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, 1);
+    } else {
+        gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+    }
 
     // Get player steering input [-1.0f, +1.0f]
     float steerFactor = 0.0f;
@@ -459,10 +490,25 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     constexpr float kCockpitTiltRad = 0.44f; // ~25 degrees tilted back
 
     // -------------------------------------------------------------
-    // 1. Dashboard / Steering Column Cowl
+    // Adjustable Cockpit Geometry Offsets (CVars)
+    // -------------------------------------------------------------
+    float tireX = CVarGetFloat("gVRTireX", 3.84f);
+    float tireY = CVarGetFloat("gVRTireY", -4.13f);
+    float tireZ = CVarGetFloat("gVRTireZ", 4.31f);
+    float tireScale = CVarGetFloat("gVRTireScale", 0.020f);
+
+    float wheelY = CVarGetFloat("gVRWheelY", -2.40f);
+    float wheelZ = CVarGetFloat("gVRWheelZ", 1.48f);
+    float wheelScale = CVarGetFloat("gVRWheelScale", 0.020f);
+
+    float dashY = wheelY - 0.5f;
+    float dashZ = wheelZ + 0.3f;
+
+    // -------------------------------------------------------------
+    // 1. Dashboard Cowl (Hood)
     // -------------------------------------------------------------
     Mat4 mtxLocalDash, mtxFinalDash;
-    BuildLocalMatrix(mtxLocalDash, 0.0f, -2.9f, 4.3f, kCockpitTiltRad, 0.0f, 0.0f, 0.020f, 0.020f, 0.020f);
+    BuildLocalMatrix(mtxLocalDash, 0.0f, dashY, dashZ, kCockpitTiltRad, 0.0f, 0.0f, 0.020f, 0.020f, 0.020f);
     mtxf_multiplication(mtxFinalDash, mtxLocalDash, mtxCockpitBase);
     AddCockpitMatrix(mtxFinalDash, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawDashboardGeometry();
@@ -471,7 +517,7 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     // 2. Steering Wheel (rotated by steerAngleWheel)
     // -------------------------------------------------------------
     Mat4 mtxLocalWheel, mtxFinalWheel;
-    BuildLocalMatrix(mtxLocalWheel, 0.0f, -2.4f, 4.0f, kCockpitTiltRad, 0.0f, steerAngleWheel, 0.018f, 0.018f, 0.018f);
+    BuildLocalMatrix(mtxLocalWheel, 0.0f, wheelY, wheelZ, kCockpitTiltRad, 0.0f, steerAngleWheel, wheelScale, wheelScale, wheelScale);
     mtxf_multiplication(mtxFinalWheel, mtxLocalWheel, mtxCockpitBase);
     AddCockpitMatrix(mtxFinalWheel, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawSteeringWheelGeometry();
@@ -480,7 +526,7 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     // 3. Front Left Tire
     // -------------------------------------------------------------
     Mat4 mtxLocalLeftTire, mtxFinalLeftTire;
-    BuildLocalMatrix(mtxLocalLeftTire, -4.6f, -headHeight, 8.2f, sTireRollAngle, steerAngleTire, 0.0f, 0.019f, 0.019f, 0.019f);
+    BuildLocalMatrix(mtxLocalLeftTire, -tireX, tireY, tireZ, sTireRollAngle, steerAngleTire, 0.0f, tireScale, tireScale, tireScale);
     mtxf_multiplication(mtxFinalLeftTire, mtxLocalLeftTire, mtxCockpitBase);
     AddCockpitMatrix(mtxFinalLeftTire, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawTireGeometry();
@@ -489,7 +535,7 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     // 4. Front Right Tire
     // -------------------------------------------------------------
     Mat4 mtxLocalRightTire, mtxFinalRightTire;
-    BuildLocalMatrix(mtxLocalRightTire, 4.6f, -headHeight, 8.2f, sTireRollAngle, steerAngleTire, 0.0f, 0.019f, 0.019f, 0.019f);
+    BuildLocalMatrix(mtxLocalRightTire, tireX, tireY, tireZ, sTireRollAngle, steerAngleTire, 0.0f, tireScale, tireScale, tireScale);
     mtxf_multiplication(mtxFinalRightTire, mtxLocalRightTire, mtxCockpitBase);
     AddCockpitMatrix(mtxFinalRightTire, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawTireGeometry();
