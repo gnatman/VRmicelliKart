@@ -694,6 +694,7 @@ void process_game_tick(void) {
     if (CM_IsTourEnabled() == false) {
         func_8028FCBC();
     }
+    TelemetryManager_Update();
 }
 
 void race_logic_loop(void) {
@@ -1202,7 +1203,6 @@ void thread5_iteration(void) {
     FB_CreateFramebuffers();
     clear_framebuffer(0); // Clear the framebuffer
     game_state_handler();
-    TelemetryManager_Update();
 
     // call_render_hook();
 

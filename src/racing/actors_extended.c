@@ -16,6 +16,7 @@
 #include "effects.h"
 #include "sounds.h"
 #include "port/Game.h"
+#include "port/TelemetryManager.h"
 
 void copy_collision(Collision* src, Collision* dest) {
     dest->unk30 = src->unk30;
@@ -945,6 +946,9 @@ void player_use_item(Player* player) {
         case ITEM_TRIPLE_RED_SHELL:
             use_triple_shell_item(player, ACTOR_TRIPLE_RED_SHELL);
             break;
+    }
+    if (playerId == 0) {
+        TelemetryManager_TriggerItemFeedback((int)player->currentItemCopy);
     }
     consume_item(playerId);
 }

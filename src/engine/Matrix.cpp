@@ -218,6 +218,13 @@ extern "C" {
         AddMatrix(GetWorld()->Mtx.Objects, mtx, flags);
     }
 
+    void AddCockpitMatrix(Mat4 mtx, s32 flags) {
+        auto& stack = GetWorld()->Mtx.Objects;
+        stack.emplace_back();
+        guMtxF2L(mtx, &stack.back());
+        gSPMatrix(gDisplayListHead++, &stack.back(), flags);
+    }
+
     Mtx* GetShadowMatrix(size_t playerId) {
         return &GetWorld()->Mtx.Shadows[playerId];
     }

@@ -10,6 +10,7 @@ public:
     void Init();
     void Update();
     void DrawSettings();
+    void TriggerItemFeedback(int itemId);
 
 private:
     TelemetryManager();
@@ -37,6 +38,7 @@ extern "C" {
 void TelemetryManager_Init();
 void TelemetryManager_Update();
 void TelemetryManager_DrawSettings();
+void TelemetryManager_TriggerItemFeedback(int itemId);
 
 #ifdef __cplusplus
 }

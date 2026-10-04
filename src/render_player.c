@@ -34,6 +34,7 @@
 #include "engine/Matrix.h"
 #include "port/interpolation/FrameInterpolation.h"
 #include "port/Engine.h"
+#include "port/FirstPersonCockpit.h"
 
 s8 gRenderingFramebufferByPlayer[] = { 0x00, 0x02, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02 };
 
@@ -1612,7 +1613,11 @@ void render_player(Player* player, s8 playerId, s8 screenId) {
         }
     }
     if ((player->type & PLAYER_INVISIBLE_OR_BOMB) != PLAYER_INVISIBLE_OR_BOMB) {
-        render_kart(player, playerId, screenId, var_v1);
+        if (CVarGetInteger("gVRCameraMode", 0) == 1 && playerId == screenId && CVarGetInteger("gVRDrawCockpit", 1) == 1) {
+            FirstPersonCockpit_Render(player, &cameras[screenId], playerId, screenId);
+        } else {
+            render_kart(player, playerId, screenId, var_v1);
+        }
     } else {
         render_ghost(player, playerId, screenId, var_v1);
     }

@@ -12,6 +12,8 @@ extern "C" {
 #include "mk64.h"
 extern Player gPlayers[];
 extern s32 gGamestate;
+extern s32 gRaceState;
+extern u16 gDemoMode;
 }
 
 WheelManager* WheelManager::mInstance = nullptr;
@@ -392,7 +394,14 @@ void WheelManager::UpdateFFB() {
     }
     mLastSoftLockForce = softLockForce;
 
-    if (gGamestate != RACING) { // In menus, pause, title screen
+    // Check if the player is in an active race and in control
+    Player* p = &gPlayers[0]; // Assuming local VR player is P1
+    bool isRaceActive = (gGamestate == RACING) &&
+                        (gDemoMode == DEMO_MODE_INACTIVE) &&
+                        (gRaceState < RACE_CALCULATE_RANKS) &&
+                        ((p->type & PLAYER_CINEMATIC_MODE) == 0);
+
+    if (!isRaceActive) { // In menus, pause, title screen, demo/attract mode, or after crossing finish line
         constantForce = softLockForce;
         mLastCenteringForce = 0;
         mLastLateralForce = 0;
@@ -419,7 +428,6 @@ void WheelManager::UpdateFFB() {
             mLastSineMagnitude = 0;
         }
     } else { // In active race
-        Player* p = &gPlayers[0]; // Assuming local VR player is P1
         mLastPlayerSpeed = p->speed;
         mLastPlayerEffects = p->effects;
         mLastPlayerTriggers = p->triggers;
@@ -793,19 +801,28 @@ void WheelManager::ProcessInput(OSContPad* pad) {
     }
 
     // Throttle (A button)
+    mNativeThrottle = 0.0f;
     if (mThrottleAxis != -1) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mThrottleAxis);
         float val = (float)raw / 32767.0f;
         if (mThrottleInvert) val = -val;
+        // Normalize typical pedal range [-1, 1] -> [0, 1] if needed, or clamp [0, 1]
+        mNativeThrottle = std::clamp((val + 1.0f) * 0.5f, 0.0f, 1.0f);
         if (val > mThrottleThreshold) pad->button |= BTN_A;
+    } else if (pad->button & BTN_A) {
+        mNativeThrottle = 1.0f;
     }
 
     // Brake (B button)
+    mNativeBrake = 0.0f;
     if (mBrakeAxis != -1) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mBrakeAxis);
         float val = (float)raw / 32767.0f;
         if (mBrakeInvert) val = -val;
+        mNativeBrake = std::clamp((val + 1.0f) * 0.5f, 0.0f, 1.0f);
         if (val > mBrakeThreshold) pad->button |= BTN_B;
+    } else if (pad->button & BTN_B) {
+        mNativeBrake = 1.0f;
     }
     
     // Drift (R button)
@@ -1213,6 +1230,22 @@ float WheelManager_GetNativeSteer() {
     WheelManager* wm = WheelManager::GetInstance();
     if (wm->IsEnabled()) {
         return wm->GetNativeSteer();
+    }
+    return 0.0f;
+}
+
+float WheelManager_GetThrottle() {
+    WheelManager* wm = WheelManager::GetInstance();
+    if (wm->IsEnabled()) {
+        return wm->GetThrottle();
+    }
+    return 0.0f;
+}
+
+float WheelManager_GetBrake() {
+    WheelManager* wm = WheelManager::GetInstance();
+    if (wm->IsEnabled()) {
+        return wm->GetBrake();
     }
     return 0.0f;
 }

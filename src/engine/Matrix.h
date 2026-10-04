@@ -31,6 +31,7 @@ Gfx* AddTextMatrix(Gfx* displayListHead, Mat4 mtx);
 Mtx* GetEffectMatrix(void);
 void ClearObjectsMatrixPool(void);
 void AddKartMatrix(Mat4 mtx, s32 flags);
+void AddCockpitMatrix(Mat4 mtx, s32 flags);
 
 #ifdef __cplusplus
 }

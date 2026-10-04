@@ -661,6 +661,13 @@ void PortMenu::AddVR() {
             .DefaultValue(5.0f)
             .Tooltip("Adjust the vertical offset of the camera when in Cockpit mode."));
 
+    AddWidget(path, "Render 3D Cockpit", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRDrawCockpit")
+        .PreFunc([](WidgetInfo& info) { info.isHidden = CVarGetInteger("gVRCameraMode", 0) != 1; })
+        .Options(CheckboxOptions()
+            .DefaultValue(true)
+            .Tooltip("Render 3D steering wheel and tires in first-person Cockpit mode."));
+
     AddWidget(path, "Supersampling: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRSupersampling")
         .Options(FloatSliderOptions()

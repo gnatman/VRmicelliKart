@@ -20,6 +20,8 @@ public:
     
     // Native wheel steering — full float precision [-1.0, 1.0]
     float GetNativeSteer() const { return mNativeSteer; }
+    float GetThrottle() const { return mNativeThrottle; }
+    float GetBrake() const { return mNativeBrake; }
     void DrawSettings();
 
     bool IsEnabled();
@@ -93,6 +95,8 @@ private:
     
     // Native high-resolution steer value, set each frame in ProcessInput
     float mNativeSteer = 0.0f;
+    float mNativeThrottle = 0.0f;
+    float mNativeBrake = 0.0f;
     
     // Rotation Limit / Soft Lock (for Direct Drive & FFB wheels)
     bool mSoftLockEnabled = true;
@@ -142,6 +146,8 @@ void WheelManager_DrawSettings();
 // Returns the wheel's post-curve steering as a float in [-1.0, 1.0],
 // or 0.0 if wheel is not active.
 float WheelManager_GetNativeSteer();
+float WheelManager_GetThrottle();
+float WheelManager_GetBrake();
 // Returns 1 if wheel is enabled AND native steering mode is active, 0 otherwise.
 int   WheelManager_IsNativeSteerActive();
 
