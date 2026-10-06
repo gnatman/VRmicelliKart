@@ -675,6 +675,15 @@ void PortMenu::AddVR() {
             .DefaultValue(true)
             .Tooltip("Render 3D steering wheel and tires in first-person Cockpit mode."));
 
+    AddWidget(path, "Tire Drift Sparks", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRDriftSparks")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(CheckboxOptions()
+            .DefaultValue(true)
+            .Tooltip("Render dynamic multi-stage sparks on the tires when powersliding/drifting."));
+
     AddWidget(path, "Front Tires Distance: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRTireZ")
         .PreFunc([](WidgetInfo& info) {

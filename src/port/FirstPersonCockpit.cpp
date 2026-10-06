@@ -40,6 +40,10 @@ static Vtx sTireTreadVtx[32];         // 16 outer edge + 16 inner edge
 // 4. Dashboard cowl
 static Vtx sDashVtx[16];
 
+// 5. Drift Sparks geometry buffer (static to prevent stack corruption)
+// 6 spark spikes per tire, 3 vertices per spike = 18 vertices per tire (36 total)
+static Vtx sDriftSparksVtx[36];
+
 static float sTireRollAngle = 0.0f;
 
 static inline void SetVtx(Vtx& v, short x, short y, short z, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) {
@@ -405,6 +409,62 @@ static void DrawDashboardGeometry() {
 }
 
 
+static void DrawDriftSparks(int tireSide, s16 driftState, Mat4 mtxCockpitBase,
+                            float tireX, float tireY, float tireZ, float steerAngleTire, float tireScale) {
+    uint8_t sparkR = 210, sparkG = 240, sparkB = 255; // Stage 0: White-cyan electric sparks
+    uint8_t sparkA = 220;
+    if (driftState == 1) {
+        sparkR = 255; sparkG = 230; sparkB = 15;  // Stage 1: Bright Neon Yellow
+        sparkA = 240;
+    } else if (driftState >= 2) {
+        sparkR = 255; sparkG = 50;  sparkB = 0;   // Stage 2: Fiery Red / Orange (Mini-Turbo ready!)
+        sparkA = 255;
+    }
+
+    float sideSign = (tireSide == 0) ? -1.0f : 1.0f;
+    float tirePosX = (tireSide == 0) ? -tireX : tireX;
+    int baseVertIdx = (tireSide == 0) ? 0 : 18;
+
+    for (int i = 0; i < 6; i++) {
+        float t = (float)gCourseTimer * 0.6f + (float)i * 1.047f + (tireSide * 3.14159f);
+        float jitterX = std::sin(t * 8.3f) * 12.0f;
+        float jitterY = std::cos(t * 7.1f) * 16.0f;
+        float jitterZ = std::sin(t * 9.7f) * 12.0f;
+
+        float spread = 24.0f + (float)i * 8.0f;
+        float length = 70.0f + std::abs(std::sin(t * 6.5f)) * 60.0f;
+
+        // Base positioned at the ground contact patch / outer sidewall of the tire (~2x wider base)
+        short baseX1 = static_cast<short>(sideSign * (34.0f + (float)(i % 2) * 6.0f));
+        short baseX2 = static_cast<short>(sideSign * (48.0f + (float)(i % 2) * 6.0f));
+        short baseY  = static_cast<short>(-92.0f + (float)(i % 3) * 4.0f);
+        short baseZ  = static_cast<short>(-40.0f - (float)i * 4.0f);
+
+        // Tip arcs outward, upward, and slightly backward (~2x larger arc and length)
+        short tipX = static_cast<short>(baseX1 + sideSign * spread + jitterX);
+        short tipY = static_cast<short>(baseY + 60.0f + (float)i * 10.0f + jitterY);
+        short tipZ = static_cast<short>(baseZ - length + jitterZ);
+
+        // Base 0 (intense white core)
+        SetVtx(sDriftSparksVtx[baseVertIdx + i * 3 + 0], baseX1, baseY, baseZ, 255, 255, 255, 255);
+        // Base 1 (intense white core)
+        SetVtx(sDriftSparksVtx[baseVertIdx + i * 3 + 1], baseX2, baseY + 8, baseZ + 6, 255, 255, 255, 245);
+        // Tip (stage color)
+        SetVtx(sDriftSparksVtx[baseVertIdx + i * 3 + 2], tipX, tipY, tipZ, sparkR, sparkG, sparkB, sparkA);
+    }
+
+    Mat4 mtxLocalSparks, mtxFinalSparks;
+    // Uses the EXACT tire coordinate and steer angle, but pitch = 0 so sparks stay at ground level
+    BuildLocalMatrix(mtxLocalSparks, tirePosX, tireY, tireZ, 0.0f, steerAngleTire, 0.0f, tireScale, tireScale, tireScale);
+    mtxf_multiplication(mtxFinalSparks, mtxLocalSparks, mtxCockpitBase);
+    AddCockpitMatrix(mtxFinalSparks, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+
+    gSPVertex(gDisplayListHead++, (uintptr_t)&sDriftSparksVtx[baseVertIdx], 18, 0);
+    for (int i = 0; i < 6; i++) {
+        gSP1Triangle(gDisplayListHead++, i * 3, i * 3 + 1, i * 3 + 2, 0);
+    }
+}
+
 void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 screenId) {
     if (!sCockpitInitialized) {
         FirstPersonCockpit_Init();
@@ -539,6 +599,21 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     mtxf_multiplication(mtxFinalRightTire, mtxLocalRightTire, mtxCockpitBase);
     AddCockpitMatrix(mtxFinalRightTire, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawTireGeometry();
+
+    // -------------------------------------------------------------
+    // 5. Power Slide Tire Sparks (Drifting)
+    // -------------------------------------------------------------
+    bool isDrifting = ((player->effects & DRIFTING_EFFECT) != 0) || (player->driftState > 0);
+    if (isDrifting && CVarGetInteger("gVRDriftSparks", 1) == 1) {
+        gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+        gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+
+        DrawDriftSparks(0, player->driftState, mtxCockpitBase, tireX, tireY, tireZ, steerAngleTire, tireScale);
+        DrawDriftSparks(1, player->driftState, mtxCockpitBase, tireX, tireY, tireZ, steerAngleTire, tireScale);
+
+        gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+        gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+    }
 }
 
 extern "C" s16 gPlayerHeldItem[4] = { 0, 0, 0, 0 };
