@@ -896,9 +896,27 @@ void use_thunder_item(Player* player) {
     }
 }
 
+extern s16 gPlayerHeldItem[4];
+
 // Handles item use
 void player_use_item(Player* player) {
     s32 playerId = player - gPlayerOne;
+
+    if (playerId >= 0 && playerId < 4) {
+        switch (player->currentItemCopy) {
+            case ITEM_BANANA:
+            case ITEM_BANANA_BUNCH:
+            case ITEM_GREEN_SHELL:
+            case ITEM_RED_SHELL:
+            case ITEM_BLUE_SPINY_SHELL:
+            case ITEM_FAKE_ITEM_BOX:
+                gPlayerHeldItem[playerId] = player->currentItemCopy;
+                break;
+            default:
+                gPlayerHeldItem[playerId] = ITEM_NONE;
+                break;
+        }
+    }
 
     switch (player->currentItemCopy) {
         case ITEM_GREEN_SHELL:

@@ -126,6 +126,7 @@ void TelemetryManager::Init() {
 
 void TelemetryManager::LoadSettings() {
     mIsEnabled = CVarGetInteger("gTelemetry.Enabled", 0);
+    mEnableItemFeedback = (bool)CVarGetInteger("gTelemetry.EnableItemFeedback", 1);
     mSpeedFactor = CVarGetFloat("gTelemetry.SpeedFactor", 3.6f);
     mSmoothingAlpha = CVarGetFloat("gTelemetry.SmoothingAlpha", 0.65f);
     mMaxAccel = CVarGetFloat("gTelemetry.MaxAccel", 30.0f);
@@ -306,19 +307,32 @@ void TelemetryManager::Update() {
     float lvY = localVelY * velScale;
     float lvZ = localVelZ * velScale;
 
+    // 4. Airborne & Landing Shock detection
+    // In MK64 physics, (p->effects & 8) == 8 is the canonical engine flag for being in the air,
+    // and p->hopFrameCounter > 0 tracks driver hops.
+    bool isAirborne = ((p->effects & 8) == 8) || (p->hopFrameCounter > 0);
+
+    // Stationary Gate: when parked on the ground, suppress airborne states and residual velocity jitter
+    if (p->speed < 0.08f && ((p->effects & 8) == 0)) {
+        isAirborne = false;
+        lvX = 0.0f;
+        lvY = 0.0f;
+        lvZ = 0.0f;
+    }
+
     packet.LocalVelocityLateralMps = lvX;
     packet.LocalVelocityUpMps = lvY;
     packet.LocalVelocityForwardMps = lvZ;
 
-    // 4. Airborne & Landing Shock detection
-    bool isAirborne = ((p->effects & 8) == 8) || (p->hopFrameCounter > 0) || (p->collision.surfaceDistance[2] > 10.0f);
     if (isAirborne) {
         pImpl->airborneFrames++;
         pImpl->wasAirborne = true;
     } else {
         if (pImpl->wasAirborne && (pImpl->airborneFrames >= 4 || p->unk_0C2 >= 4 || (p->kartGraphics & POOMP))) {
-            // Wheels just touched ground with significant velocity -> landing impact pulse
-            pImpl->landingShockFrames = 4; // ~66ms heavy compression shock
+            // Wheels just touched ground with significant downward speed -> landing impact pulse
+            if (p->speed > 0.5f || p->velocity[1] < -0.2f || (p->kartGraphics & POOMP)) {
+                pImpl->landingShockFrames = 4; // ~66ms heavy compression shock
+            }
         }
         pImpl->airborneFrames = 0;
         pImpl->wasAirborne = false;
@@ -343,23 +357,33 @@ void TelemetryManager::Update() {
         float rawSway  = (lvX - pImpl->prevLocalVel[0]) / dt;
         float rawHeave = (lvY - pImpl->prevLocalVel[1]) / dt;
 
-        // Apply landing compression shock to vertical heave
-        if (pImpl->landingShockFrames > 0) {
-            rawHeave += 22.0f; // Downward jolt on touchdown
-            pImpl->landingShockFrames--;
-        }
+        if (p->speed < 0.08f && !isAirborne) {
+            rawSurge = 0.0f;
+            rawSway  = 0.0f;
+            rawHeave = 0.0f;
+            pImpl->smoothedSurge = 0.0f;
+            pImpl->smoothedSway  = 0.0f;
+            pImpl->smoothedHeave = 0.0f;
+            pImpl->landingShockFrames = 0;
+        } else {
+            // Apply landing compression shock to vertical heave
+            if (pImpl->landingShockFrames > 0) {
+                rawHeave += 22.0f; // Downward jolt on touchdown
+                pImpl->landingShockFrames--;
+            }
 
-        // Apply longitudinal surge kick on Mushroom / Boost item activation
-        if (pImpl->itemSurgeFrames > 0) {
-            rawSurge += 25.0f; // Vigorous forward acceleration kick (~2.5G)
-            pImpl->itemSurgeFrames--;
-        }
+            // Apply longitudinal surge kick on Mushroom / Boost item activation
+            if (pImpl->itemSurgeFrames > 0) {
+                rawSurge += 25.0f; // Vigorous forward acceleration kick (~2.5G)
+                pImpl->itemSurgeFrames--;
+            }
 
-        // Exponential Moving Average low-pass filter
-        float a = mSmoothingAlpha;
-        pImpl->smoothedSurge = a * rawSurge + (1.0f - a) * pImpl->smoothedSurge;
-        pImpl->smoothedSway  = a * rawSway  + (1.0f - a) * pImpl->smoothedSway;
-        pImpl->smoothedHeave = a * rawHeave + (1.0f - a) * pImpl->smoothedHeave;
+            // Exponential Moving Average low-pass filter
+            float a = mSmoothingAlpha;
+            pImpl->smoothedSurge = a * rawSurge + (1.0f - a) * pImpl->smoothedSurge;
+            pImpl->smoothedSway  = a * rawSway  + (1.0f - a) * pImpl->smoothedSway;
+            pImpl->smoothedHeave = a * rawHeave + (1.0f - a) * pImpl->smoothedHeave;
+        }
 
         float maxA = mMaxAccel;
         packet.LocalSurgeMs2 = std::clamp(pImpl->smoothedSurge, -maxA, maxA);
@@ -488,7 +512,7 @@ void TelemetryManager::Update() {
 
     float suspVel[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     for (int t = 0; t < 4; t++) {
-        if (!pImpl->suspInitialized || isAirborne) {
+        if (!pImpl->suspInitialized || isAirborne || (p->speed < 0.08f)) {
             suspVel[t] = 0.0f;
         } else {
             float dH = (p->tyres[t].baseHeight - pImpl->lastTyreHeight[t]) * velScale;
@@ -532,7 +556,7 @@ void TelemetryManager::Update() {
     pImpl->lastSpeed = p->speed;
 
     if (wallHit || speedDropHit) packet.EventFlags |= TELEMETRY_EVENT_WALL_HIT;
-    if (pImpl->landingShockFrames > 0) packet.EventFlags |= TELEMETRY_EVENT_LANDING;
+    if (pImpl->landingShockFrames > 0 && p->speed > 0.5f) packet.EventFlags |= TELEMETRY_EVENT_LANDING;
 
     packet.SurfaceType = (int16_t)p->surfaceType;
 
@@ -613,8 +637,14 @@ void TelemetryManager::DrawSettings() {
     }
 }
 
+void TelemetryManager::SetItemFeedbackEnabled(bool enabled) {
+    mEnableItemFeedback = enabled;
+    CVarSetInteger("gTelemetry.EnableItemFeedback", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
 void TelemetryManager::TriggerItemFeedback(int itemId) {
-    if (!pImpl) return;
+    if (!pImpl || !mEnableItemFeedback) return;
     
     // Check if this item is a boost-type item
     bool isBoostItem = (itemId == ITEM_MUSHROOM ||
@@ -649,5 +679,13 @@ void TelemetryManager_DrawSettings() {
 
 void TelemetryManager_TriggerItemFeedback(int itemId) {
     TelemetryManager::GetInstance()->TriggerItemFeedback(itemId);
+}
+
+bool TelemetryManager_IsItemFeedbackEnabled() {
+    return TelemetryManager::GetInstance()->IsItemFeedbackEnabled();
+}
+
+void TelemetryManager_SetItemFeedbackEnabled(bool enabled) {
+    TelemetryManager::GetInstance()->SetItemFeedbackEnabled(enabled);
 }
 }

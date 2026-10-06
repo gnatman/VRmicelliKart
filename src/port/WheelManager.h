@@ -23,6 +23,10 @@ public:
     float GetThrottle() const { return mNativeThrottle; }
     float GetBrake() const { return mNativeBrake; }
     void DrawSettings();
+    void DrawHapticsSettings();
+
+    bool IsFFBEnabled() const { return mFFBEnabled; }
+    void SetFFBEnabled(bool enabled) { mFFBEnabled = enabled; SaveSettings(); }
 
     bool IsEnabled();
 
@@ -41,6 +45,14 @@ private:
     bool mHapticRumbleSupported = false;
     int mFFBMasterGain = 100;
     std::string mHapticErrorStr;
+
+    // Haptics & Force Feedback Enable Switches
+    bool mFFBEnabled = true;
+    bool mFFBEnableCentering = true;
+    bool mFFBEnableLateral = true;
+    bool mFFBEnableCollisionJolts = true;
+    bool mFFBEnableOffroadRumble = true;
+    bool mFFBEnableSpinoutShake = true;
 
     void OpenJoystick(int index);
     void CloseJoystick();
@@ -141,6 +153,7 @@ void WheelManager_Update();
 void WheelManager_ProcessInput(void* pad);
 void WheelManager_DrawUI();
 void WheelManager_DrawSettings();
+void WheelManager_DrawHapticsSettings();
 
 // Native wheel steering API — bypasses N64 stick quantization
 // Returns the wheel's post-curve steering as a float in [-1.0, 1.0],

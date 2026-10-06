@@ -2599,6 +2599,8 @@ UNUSED void func_8004E604(s32 arg0, s32 arg1, u8* tlut, u8* texture) {
     func_8004E240(arg0, arg1, tlut, texture, SCREEN_WIDTH, SCREEN_HEIGHT, 6);
 }
 
+extern s16 GetPlayerHeldItem(s32 playerId);
+
 void draw_item_window(s32 playerId) {
     s32 objectIndex;
     Object* object;
@@ -2610,6 +2612,11 @@ void draw_item_window(s32 playerId) {
         temp_v0 = &playerHUD[playerId];
         func_8004E4CC(temp_v0->slideItemBoxX + temp_v0->itemBoxX, temp_v0->slideItemBoxY + temp_v0->itemBoxY,
                       (u8*) object->activeTLUT, object->activeTexture);
+    }
+
+    s16 heldItem = GetPlayerHeldItem(playerId);
+    if (playerId == 0 && heldItem > ITEM_NONE && heldItem < ITEM_MAX) {
+        func_8004E4CC(160, 205, (u8*) gItemWindowTLUTs[heldItem], gItemWindowTextures[heldItem]);
     }
 }
 

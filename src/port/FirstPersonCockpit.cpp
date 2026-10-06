@@ -540,3 +540,76 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     AddCockpitMatrix(mtxFinalRightTire, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawTireGeometry();
 }
+
+extern "C" s16 gPlayerHeldItem[4] = { 0, 0, 0, 0 };
+
+extern "C" s16 GetPlayerHeldItem(s32 playerId) {
+    if (playerId < 0 || playerId >= 4) return ITEM_NONE;
+
+    // 1. Scan active actors in the game (flags != 0 means active)
+    size_t actorCount = CM_GetActorSize();
+    for (size_t i = 0; i < actorCount; i++) {
+        struct Actor* actor = CM_GetActor(i);
+        if (!actor || actor->flags == 0) continue;
+
+        switch (actor->type) {
+            case ACTOR_BANANA: {
+                struct BananaActor* banana = reinterpret_cast<struct BananaActor*>(actor);
+                if (banana->playerId == playerId && (banana->state == HELD_BANANA || banana->state == FIRST_BANANA_BUNCH_BANANA)) {
+                    if (banana->parentIndex != -1) {
+                        return ITEM_BANANA_BUNCH;
+                    }
+                    return ITEM_BANANA;
+                }
+                break;
+            }
+            case ACTOR_BANANA_BUNCH: {
+                struct BananaBunchParent* bunch = reinterpret_cast<struct BananaBunchParent*>(actor);
+                if (bunch->playerId == playerId && bunch->bananasAvailable > 0) {
+                    return ITEM_BANANA_BUNCH;
+                }
+                break;
+            }
+            case ACTOR_GREEN_SHELL: {
+                struct ShellActor* shell = reinterpret_cast<struct ShellActor*>(actor);
+                if (shell->playerId == playerId && shell->state == HELD_SHELL) {
+                    return ITEM_GREEN_SHELL;
+                }
+                break;
+            }
+            case ACTOR_RED_SHELL: {
+                struct ShellActor* shell = reinterpret_cast<struct ShellActor*>(actor);
+                if (shell->playerId == playerId && shell->state == HELD_SHELL) {
+                    return ITEM_RED_SHELL;
+                }
+                break;
+            }
+            case ACTOR_BLUE_SPINY_SHELL: {
+                struct ShellActor* shell = reinterpret_cast<struct ShellActor*>(actor);
+                if (shell->playerId == playerId && shell->state == HELD_SHELL) {
+                    return ITEM_BLUE_SPINY_SHELL;
+                }
+                break;
+            }
+            case ACTOR_FAKE_ITEM_BOX: {
+                struct FakeItemBox* box = reinterpret_cast<struct FakeItemBox*>(actor);
+                if ((s32)box->playerId == playerId && box->state == HELD_FAKE_ITEM_BOX) {
+                    return ITEM_FAKE_ITEM_BOX;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    // 2. Fallback: check player triggers & gPlayerHeldItem
+    Player* player = &gPlayers[playerId];
+    if ((player->triggers & DRAG_ITEM_EFFECT) && gPlayerHeldItem[playerId] > ITEM_NONE && gPlayerHeldItem[playerId] < ITEM_MAX) {
+        return gPlayerHeldItem[playerId];
+    }
+
+    gPlayerHeldItem[playerId] = ITEM_NONE;
+    return ITEM_NONE;
+}
+

@@ -11,6 +11,8 @@ public:
     void Update();
     void DrawSettings();
     void TriggerItemFeedback(int itemId);
+    bool IsItemFeedbackEnabled() const { return mEnableItemFeedback; }
+    void SetItemFeedbackEnabled(bool enabled);
 
 private:
     TelemetryManager();
@@ -18,6 +20,7 @@ private:
     static TelemetryManager* mInstance;
 
     bool mIsEnabled = false;
+    bool mEnableItemFeedback = true;
     float mSpeedFactor = 3.6f;
     float mSmoothingAlpha = 0.3f;
     float mMaxAccel = 30.0f;
@@ -39,6 +42,8 @@ void TelemetryManager_Init();
 void TelemetryManager_Update();
 void TelemetryManager_DrawSettings();
 void TelemetryManager_TriggerItemFeedback(int itemId);
+bool TelemetryManager_IsItemFeedbackEnabled();
+void TelemetryManager_SetItemFeedbackEnabled(bool enabled);
 
 #ifdef __cplusplus
 }

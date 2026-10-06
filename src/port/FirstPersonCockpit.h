@@ -11,6 +11,7 @@ extern "C" {
 
 void FirstPersonCockpit_Init(void);
 void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 screenId);
+s16 GetPlayerHeldItem(s32 playerId);
 
 #ifdef __cplusplus
 }

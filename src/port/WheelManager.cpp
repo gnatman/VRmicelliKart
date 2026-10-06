@@ -1,4 +1,5 @@
 #include "WheelManager.h"
+#include "port/TelemetryManager.h"
 #include <imgui.h>
 #include "ship/Context.h"
 #include "ship/config/ConsoleVariable.h"
@@ -57,8 +58,15 @@ void WheelManager::LoadSettings() {
     mThrottleThreshold = CVarGetFloat("gWheel.ThrottleThreshold", 0.5f);
     mBrakeThreshold = CVarGetFloat("gWheel.BrakeThreshold", 0.5f);
     mDriftThreshold = CVarGetFloat("gWheel.DriftThreshold", 0.5f);
+    mFFBEnabled = CVarGetInteger("gWheel.FFBEnabled", 1);
     mFFBMasterGain = CVarGetInteger("gWheel.FFBMasterGain", 100);
     mCombineInputs = CVarGetInteger("gWheel.CombineInputs", 1);
+
+    mFFBEnableCentering = CVarGetInteger("gWheel.FFBEnableCentering", 1);
+    mFFBEnableLateral = CVarGetInteger("gWheel.FFBEnableLateral", 1);
+    mFFBEnableCollisionJolts = CVarGetInteger("gWheel.FFBEnableCollisionJolts", 1);
+    mFFBEnableOffroadRumble = CVarGetInteger("gWheel.FFBEnableOffroadRumble", 1);
+    mFFBEnableSpinoutShake = CVarGetInteger("gWheel.FFBEnableSpinoutShake", 1);
 
     mSoftLockEnabled = CVarGetInteger("gWheel.SoftLockEnabled", 1);
     mHardwareDOR = CVarGetInteger("gWheel.HardwareDOR", 900);
@@ -134,11 +142,18 @@ void WheelManager::SaveSettings() {
     CVarSetFloat("gWheel.SteeringSCurve", mSteeringSCurve);
     CVarSetInteger("gWheel.SteeringCenter", mSteeringCenter);
 
+    CVarSetInteger("gWheel.FFBEnabled", mFFBEnabled ? 1 : 0);
     CVarSetInteger("gWheel.FFBMasterGain", mFFBMasterGain);
     CVarSetInteger("gWheel.CombineInputs", mCombineInputs);
     CVarSetFloat("gWheel.ThrottleThreshold", mThrottleThreshold);
     CVarSetFloat("gWheel.BrakeThreshold", mBrakeThreshold);
     CVarSetFloat("gWheel.DriftThreshold", mDriftThreshold);
+
+    CVarSetInteger("gWheel.FFBEnableCentering", mFFBEnableCentering ? 1 : 0);
+    CVarSetInteger("gWheel.FFBEnableLateral", mFFBEnableLateral ? 1 : 0);
+    CVarSetInteger("gWheel.FFBEnableCollisionJolts", mFFBEnableCollisionJolts ? 1 : 0);
+    CVarSetInteger("gWheel.FFBEnableOffroadRumble", mFFBEnableOffroadRumble ? 1 : 0);
+    CVarSetInteger("gWheel.FFBEnableSpinoutShake", mFFBEnableSpinoutShake ? 1 : 0);
 
     CVarSetInteger("gWheel.SoftLockEnabled", mSoftLockEnabled ? 1 : 0);
     CVarSetInteger("gWheel.HardwareDOR", mHardwareDOR);
@@ -440,7 +455,7 @@ void WheelManager::UpdateFFB() {
         // 1. Dynamic Auto-Centering (Caster trail based on speed and wheel deflection)
         // Center deadband eliminates limit-cycle flutter / hunting around zero on direct drive wheels
         int16_t centeringForce = 0;
-        if (mSteeringAxis != -1 && p->speed > 0.3f) {
+        if (mFFBEnableCentering && mSteeringAxis != -1 && p->speed > 0.3f) {
             int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
             int32_t centered = (int32_t)raw - (int32_t)mSteeringCenter;
             const int32_t kCenterDeadband = 350; // ~1 deg deadband prevents direct drive oscillation
@@ -456,17 +471,19 @@ void WheelManager::UpdateFFB() {
 
         // 2. Lateral G (Drifting tire scrub & continuous yaw cornering load)
         int16_t lateralForce = 0;
-        if (p->effects & DRIFTING_EFFECT) {
-            // Drifting: lateral tire scrub resisting the slide
-            int driftDir = 0;
-            if (p->unk_0C0 > 50) driftDir = 1;
-            else if (p->unk_0C0 < -50) driftDir = -1;
-            lateralForce = (int16_t)(driftDir * 12000);
-        } else if (abs(p->unk_078) > 10 && p->speed > 1.0f) {
-            // Smooth continuous yaw rate cornering load (no step discontinuities)
-            float yawMag = (float)abs(p->unk_078);
-            float smoothTurn = (p->unk_078 > 0 ? 1.0f : -1.0f) * std::clamp((yawMag - 10.0f) / 130.0f, 0.0f, 1.0f);
-            lateralForce = (int16_t)(-smoothTurn * 6000.0f);
+        if (mFFBEnableLateral) {
+            if (p->effects & DRIFTING_EFFECT) {
+                // Drifting: lateral tire scrub resisting the slide
+                int driftDir = 0;
+                if (p->unk_0C0 > 50) driftDir = 1;
+                else if (p->unk_0C0 < -50) driftDir = -1;
+                lateralForce = (int16_t)(driftDir * 12000);
+            } else if (abs(p->unk_078) > 10 && p->speed > 1.0f) {
+                // Smooth continuous yaw rate cornering load (no step discontinuities)
+                float yawMag = (float)abs(p->unk_078);
+                float smoothTurn = (p->unk_078 > 0 ? 1.0f : -1.0f) * std::clamp((yawMag - 10.0f) / 130.0f, 0.0f, 1.0f);
+                lateralForce = (int16_t)(-smoothTurn * 6000.0f);
+            }
         }
         mLastLateralForce = lateralForce;
         constantForce += lateralForce;
@@ -522,11 +539,13 @@ void WheelManager::UpdateFFB() {
         }
 
         if (sJoltFrames > 0) {
-            constantForce = sJoltForce;
+            if (mFFBEnableCollisionJolts) {
+                constantForce = sJoltForce;
+            }
             sJoltFrames--;
         }
         lastSpeed = p->speed;
-        mLastJoltForce = (sJoltFrames > 0) ? sJoltForce : 0;
+        mLastJoltForce = (mFFBEnableCollisionJolts && sJoltFrames > 0) ? sJoltForce : 0;
         mJoltFramesRemaining = sJoltFrames;
 
         // 4. Spinout & Airborne Item-Hit Tumble Shake (20 Hz synthesized wave in constant force)
@@ -542,12 +561,12 @@ void WheelManager::UpdateFFB() {
         mIsSpinoutActive = shouldShake;
         int16_t spinoutForce = 0;
         static int sSpinoutStep = 0;
-        if (shouldShake) {
+        if (mFFBEnableSpinoutShake && shouldShake) {
             sSpinoutStep++;
             float angle = (float)sSpinoutStep * (2.0f * 3.14159265f / 3.0f); // 20 Hz at 60 FPS
             spinoutForce = (int16_t)(sinf(angle) * 24000.0f);
         }
-        mLastSineMagnitude = shouldShake ? 24000 : 0;
+        mLastSineMagnitude = (mFFBEnableSpinoutShake && shouldShake) ? 24000 : 0;
         constantForce += spinoutForce;
 
         // 5. Rumble (Offroad terrain texture buzz synthesized into constant force)
@@ -567,7 +586,7 @@ void WheelManager::UpdateFFB() {
 
         int16_t rumbleForce = 0;
         static int sRumbleStep = 0;
-        if (offroad && p->speed > 0.5f) {
+        if (mFFBEnableOffroadRumble && offroad && p->speed > 0.5f) {
             sRumbleStep++;
             float intensity = std::clamp(p->speed / 6.0f, 0.35f, 1.0f);
             int16_t rumbleMag = (int16_t)(intensity * 4500.0f);
@@ -576,16 +595,21 @@ void WheelManager::UpdateFFB() {
         mLastRumbleForce = rumbleForce;
         constantForce += rumbleForce;
 
-        // Apply FFB Master Gain to gameplay forces
-        float gainMult = std::clamp((float)mFFBMasterGain / 100.0f, 0.0f, 1.0f);
-        constantForce = (int16_t)(constantForce * gainMult);
-
-        // First-order low pass filter to eliminate 60 Hz frame-to-frame torque ripple on Direct Drive
         static float sFilteredForce = 0.0f;
-        sFilteredForce = sFilteredForce * 0.65f + (float)constantForce * 0.35f;
-        constantForce = (int16_t)sFilteredForce;
+        if (!mFFBEnabled) {
+            constantForce = 0;
+            sFilteredForce = 0.0f;
+        } else {
+            // Apply FFB Master Gain to gameplay forces
+            float gainMult = std::clamp((float)mFFBMasterGain / 100.0f, 0.0f, 1.0f);
+            constantForce = (int16_t)(constantForce * gainMult);
 
-        if (softLockForce != 0) {
+            // First-order low pass filter to eliminate 60 Hz frame-to-frame torque ripple on Direct Drive
+            sFilteredForce = sFilteredForce * 0.65f + (float)constantForce * 0.35f;
+            constantForce = (int16_t)sFilteredForce;
+        }
+
+        if (mSoftLockEnabled && softLockForce != 0) {
             // Soft lock wall takes absolute priority over gameplay forces and is unfiltered
             constantForce = softLockForce;
             sFilteredForce = (float)softLockForce;
@@ -879,21 +903,6 @@ void WheelManager::DrawSettings() {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("When enabled, the wheel's full resolution drives kart steering directly with sim-like physics.\nWhen disabled, the wheel simulates an N64 analog stick (legacy mode).");
 
     ImGui::Separator();
-    
-    if (ImGui::SliderInt("Force Feedback Gain", &mFFBMasterGain, 0, 100, "%d%%")) {
-        if (mHaptic) SDL_HapticSetGain(mHaptic, mFFBMasterGain);
-        SaveSettings();
-    }
-    if (!mHaptic && mJoystick) {
-        ImGui::SameLine();
-        if (!mHapticErrorStr.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(%s)", mHapticErrorStr.c_str());
-        } else {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(Hardware Not Supported)");
-        }
-    }
-
-    ImGui::Separator();
 
     if (ImGui::Button("Refresh Joysticks")) {
         RefreshJoysticks();
@@ -967,123 +976,7 @@ void WheelManager::DrawSettings() {
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("0.0 = Linear/Gamma, 1.0 = Snappy Arcade S-Curve (Gentle center, aggressive turn).");
 
             ImGui::Separator();
-            ImGui::Text("Rotation Limit / Soft Lock (Direct Drive):");
-            if (ImGui::Checkbox("Enable FFB Soft Lock Wall", &mSoftLockEnabled)) {
-                SaveSettings();
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Uses Direct Drive motor force to create a physical hard-stop wall at the target rotation angle.");
-
-            if (mSoftLockEnabled) {
-                if (ImGui::InputInt("Wheel Hardware Range (DOR)", &mHardwareDOR, 10, 90)) {
-                    if (mHardwareDOR < 90) mHardwareDOR = 90;
-                    if (mHardwareDOR > 2520) mHardwareDOR = 2520;
-                    SaveSettings();
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Type or step the exact total rotation angle set in your Thrustmaster Control Panel (e.g. 900 or 1080).");
-
-                ImGui::SameLine();
-                if (ImGui::SmallButton("900 deg")) { mHardwareDOR = 900; SaveSettings(); }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("1080 deg")) { mHardwareDOR = 1080; SaveSettings(); }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("540 deg")) { mHardwareDOR = 540; SaveSettings(); }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("360 deg")) { mHardwareDOR = 360; SaveSettings(); }
-
-                if (ImGui::InputFloat("Soft Lock Angle (Each Side)", &mSoftLockAngle, 5.0f, 15.0f, "%.0f deg")) {
-                    if (mSoftLockAngle < 15.0f) mSoftLockAngle = 15.0f;
-                    if (mSoftLockAngle > (float)mHardwareDOR * 0.5f) mSoftLockAngle = (float)mHardwareDOR * 0.5f;
-                    SaveSettings();
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Target angle from center before hitting the motor bumpstop. 90 deg = 180 deg total lock-to-lock.");
-
-                ImGui::SameLine();
-                if (ImGui::SmallButton("+/-90 deg")) { mSoftLockAngle = 90.0f; SaveSettings(); }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("+/-180 deg")) { mSoftLockAngle = 180.0f; SaveSettings(); }
-
-                if (ImGui::SliderFloat("Wall Stiffness", &mSoftLockStiffness, 0.2f, 2.0f, "%.2f")) {
-                    SaveSettings();
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strongly the motor pushes back when hitting the limit.");
-            }
-            ImGui::Separator();
-            ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Wheel Telemetry & Diagnostics:");
-
-            int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
-            float currentAngle = mCurrentAngleDeg;
-            float halfDOR = (float)mHardwareDOR * 0.5f;
-            if (halfDOR < 1.0f) halfDOR = 1.0f;
-            
-            // Visual progress bar from [-halfDOR, +halfDOR]
-            float normAngle = std::clamp((currentAngle + halfDOR) / (halfDOR * 2.0f), 0.0f, 1.0f);
-            ImGui::ProgressBar(normAngle, ImVec2(-1, 0), StringHelper::Sprintf("Angle: %+.1f deg (Raw: %d)", currentAngle, raw).c_str());
-
-            // Wall bumpstop status
-            if (mSoftLockEnabled) {
-                if (abs(currentAngle) > mSoftLockAngle) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f),
-                        ICON_FA_EXCLAMATION_TRIANGLE " BUMPSTOP ENGAGED: %s by %.1f deg",
-                        (currentAngle > 0) ? "RIGHT" : "LEFT", abs(currentAngle) - mSoftLockAngle);
-                } else {
-                    ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), 
-                        "Within Safe Range (+-%.0f deg)", mSoftLockAngle);
-                }
-            }
-
-            ImGui::Text("Commanded FFB Force: %d (Soft Lock: %d)", mLastCommandedForce, mLastSoftLockForce);
-            if (ImGui::TreeNodeEx("Active Forces Breakdown", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::BulletText("Auto-Centering: %d", mLastCenteringForce);
-                ImGui::BulletText("Lateral Load (Drift/Turn): %d", mLastLateralForce);
-                ImGui::BulletText("Collision Jolt: %d (%d frames remaining)", mLastJoltForce, mJoltFramesRemaining);
-                ImGui::BulletText("Offroad Terrain Texture: %d (%s)", mLastRumbleForce, mIsOffroadActive ? "ACTIVE" : "Offroad Idle");
-                ImGui::BulletText("Spinout 20Hz Shake: %s (Magnitude: %d)", mIsSpinoutActive ? "ACTIVE" : "Idle", mLastSineMagnitude);
-                ImGui::BulletText("Player Speed: %.2f | Effects: 0x%08X", mLastPlayerSpeed, mLastPlayerEffects);
-                ImGui::TreePop();
-            }
-
-            // Effect Status & Driver Health
-            const char* statusStr = "Not Created";
-            if (mConstantEffectId != -1) {
-                if (mLastFFBEffectStatus == 1) statusStr = "Playing";
-                else if (mLastFFBEffectStatus == 0) statusStr = "Stopped (Auto-restarting)";
-                else statusStr = "Status Query Error";
-            }
-            ImGui::Text("FFB Motor Status: %s (Type: %s)", statusStr, 
-                (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
-
-            if (mLastFFBUpdateResult == 0) {
-                ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK (Auto-Rearms: %d)", mAutoRearmCount);
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "DirectInput Update Error: %s (Failures: %d, Auto-Rearms: %d)", 
-                    mLastFFBError.empty() ? "Failed" : mLastFFBError.c_str(), mConsecutiveFFBErrors, mAutoRearmCount);
-            }
-
-            if (ImGui::Checkbox("Invert Force Feedback Direction", &mFFBInvert)) {
-                SaveSettings();
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check this if the wheel pushes outward into the turn instead of resisting back toward center.");
-
-            ImGui::SameLine();
-            if (ImGui::Button("Re-arm / Restart FFB")) {
-                ReInitHapticEffects();
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Destroys and recreates the DirectInput force feedback effects if the motor stopped responding.");
-
-            if (ImGui::Button("Test Collision Jolt")) {
-                mTestJoltFrames = 8;
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manually triggers an impact jolt so you can feel the collision force.");
-
-            ImGui::SameLine();
-            if (ImGui::Button(mTestShakeActive ? "Stop 20Hz Shake" : "Test 20Hz Shake")) {
-                mTestShakeActive = !mTestShakeActive;
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggles the 20Hz spinout / airborne tumble shake effect.");
-            if (mTestShakeActive) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "(Active)");
-            }
+            ImGui::TextDisabled("Note: Force feedback, soft lock, and haptics are configured in the dedicated 'Haptics' menu pane.");
             ImGui::Unindent();
         }
 
@@ -1203,6 +1096,213 @@ void WheelManager::DrawUI() {
     ImGui::End();
 }
 
+void WheelManager::DrawHapticsSettings() {
+    // 1. Device and Motor Status Header
+    if (mJoystick) {
+        ImGui::Text("Active Device: %s", SDL_JoystickName(mJoystick));
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), ICON_FA_EXCLAMATION_TRIANGLE " No Racing Wheel Detected");
+    }
+
+    if (mHaptic) {
+        ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), 
+            ICON_FA_CHECK_CIRCLE " Force Feedback Motor: Ready (%s)",
+            (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
+    } else if (mJoystick) {
+        if (!mHapticErrorStr.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(%s)", mHapticErrorStr.c_str());
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "(DirectInput FFB Hardware Not Supported)");
+        }
+    }
+
+    ImGui::Separator();
+
+    // 2. Master FFB Controls
+    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Master Force Feedback Controls:");
+    if (ImGui::Checkbox("Enable Force Feedback (Master)", &mFFBEnabled)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master switch to enable or disable all force feedback output to the wheel.");
+
+    if (mFFBEnabled) {
+        if (ImGui::SliderInt("Force Feedback Master Gain", &mFFBMasterGain, 0, 100, "%d%%")) {
+            if (mHaptic) SDL_HapticSetGain(mHaptic, mFFBMasterGain);
+            SaveSettings();
+        }
+
+        if (ImGui::Checkbox("Invert Force Feedback Direction", &mFFBInvert)) {
+            SaveSettings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check this if the wheel pushes outward into turns instead of resisting back toward center.");
+
+        ImGui::SameLine();
+        if (ImGui::Button("Re-arm / Restart FFB")) {
+            ReInitHapticEffects();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Destroys and recreates the DirectInput force feedback effects if the motor stopped responding.");
+    }
+
+    ImGui::Separator();
+
+    // 3. Individual Haptic Effects Enable / Disable (Central testing location)
+    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Individual Haptic Effects (Enable / Disable):");
+    ImGui::TextDisabled("Toggle specific effects to isolate, test, and tune each force component individually.");
+
+    if (ImGui::Checkbox("Enable Auto-Centering Force", &mFFBEnableCentering)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Simulates caster trail: wheel dynamically pulls toward center with increasing kart speed and deflection.");
+
+    if (ImGui::Checkbox("Enable Lateral Load (Cornering & Drift)", &mFFBEnableLateral)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Provides continuous yaw resistance during turns and lateral tire scrub counter-force when drifting.");
+
+    if (ImGui::Checkbox("Enable Collision & Impact Jolts", &mFFBEnableCollisionJolts)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Directional force punches when colliding with track walls, shells, banana slips, lightning, and heavy speed drops.");
+
+    if (ImGui::Checkbox("Enable Offroad Terrain Texture / Rumble", &mFFBEnableOffroadRumble)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Synthesizes surface buzz and vibration when tires roll over grass, dirt, sand, or snow offroad.");
+
+    if (ImGui::Checkbox("Enable Spinout & Airborne Tumble Shake", &mFFBEnableSpinoutShake)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("20 Hz oscillation wave when spinning out or tumbling through the air after being hit.");
+
+    // Direct Drive Soft Lock Bumpstop Wall
+    if (ImGui::Checkbox("Enable FFB Soft Lock Wall (Direct Drive)", &mSoftLockEnabled)) {
+        SaveSettings();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Uses Direct Drive motor force to create a physical hard-stop wall at the target rotation angle.");
+
+    if (mSoftLockEnabled) {
+        ImGui::Indent();
+        if (ImGui::InputInt("Wheel Hardware Range (DOR)", &mHardwareDOR, 10, 90)) {
+            if (mHardwareDOR < 90) mHardwareDOR = 90;
+            if (mHardwareDOR > 2520) mHardwareDOR = 2520;
+            SaveSettings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Type or step the exact total rotation angle set in your wheel driver (e.g. 900 or 1080).");
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("900 deg")) { mHardwareDOR = 900; SaveSettings(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("1080 deg")) { mHardwareDOR = 1080; SaveSettings(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("540 deg")) { mHardwareDOR = 540; SaveSettings(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("360 deg")) { mHardwareDOR = 360; SaveSettings(); }
+
+        if (ImGui::InputFloat("Soft Lock Angle (Each Side)", &mSoftLockAngle, 5.0f, 15.0f, "%.0f deg")) {
+            if (mSoftLockAngle < 15.0f) mSoftLockAngle = 15.0f;
+            if (mSoftLockAngle > (float)mHardwareDOR * 0.5f) mSoftLockAngle = (float)mHardwareDOR * 0.5f;
+            SaveSettings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Target angle from center before hitting the motor bumpstop. 90 deg = 180 deg total lock-to-lock.");
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+/-90 deg")) { mSoftLockAngle = 90.0f; SaveSettings(); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+/-180 deg")) { mSoftLockAngle = 180.0f; SaveSettings(); }
+
+        if (ImGui::SliderFloat("Wall Stiffness", &mSoftLockStiffness, 0.2f, 2.0f, "%.2f")) {
+            SaveSettings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strongly the motor pushes back when hitting the limit.");
+        ImGui::Unindent();
+    }
+
+    // Telemetry gear shift pulse
+    bool itemFeedback = TelemetryManager::GetInstance()->IsItemFeedbackEnabled();
+    if (ImGui::Checkbox("Enable Gear-Shift & Boost Item Feedback (SimHub / ShakeIt)", &itemFeedback)) {
+        TelemetryManager::GetInstance()->SetItemFeedbackEnabled(itemFeedback);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits gear shift events and acceleration kicks to SimHub motion rigs and bass shakers on item activation.");
+
+    ImGui::Separator();
+
+    // 4. Interactive Test Triggers
+    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Interactive Haptic Tests:");
+    if (ImGui::Button("Test Collision Jolt")) {
+        mTestJoltFrames = 8;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manually triggers an impact jolt so you can feel the collision force.");
+
+    ImGui::SameLine();
+    if (ImGui::Button(mTestShakeActive ? "Stop 20Hz Shake" : "Test 20Hz Shake")) {
+        mTestShakeActive = !mTestShakeActive;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggles the 20Hz spinout / airborne tumble shake effect.");
+    if (mTestShakeActive) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "(Active)");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Test Item Boost Feedback")) {
+        TelemetryManager::GetInstance()->TriggerItemFeedback(ITEM_MUSHROOM);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sends a boost gear-shift pulse to SimHub ShakeIt / motion telemetry.");
+
+    ImGui::Separator();
+
+    // 5. Live Diagnostics & Telemetry
+    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Wheel Telemetry & Diagnostics:");
+
+    if (mJoystick && mSteeringAxis != -1) {
+        int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);
+        float currentAngle = mCurrentAngleDeg;
+        float halfDOR = (float)mHardwareDOR * 0.5f;
+        if (halfDOR < 1.0f) halfDOR = 1.0f;
+        
+        float normAngle = std::clamp((currentAngle + halfDOR) / (halfDOR * 2.0f), 0.0f, 1.0f);
+        ImGui::ProgressBar(normAngle, ImVec2(-1, 0), StringHelper::Sprintf("Angle: %+.1f deg (Raw: %d)", currentAngle, raw).c_str());
+
+        if (mSoftLockEnabled) {
+            if (abs(currentAngle) > mSoftLockAngle) {
+                ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f),
+                    ICON_FA_EXCLAMATION_TRIANGLE " BUMPSTOP ENGAGED: %s by %.1f deg",
+                    (currentAngle > 0) ? "RIGHT" : "LEFT", abs(currentAngle) - mSoftLockAngle);
+            } else {
+                ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), 
+                    "Within Safe Range (+-%.0f deg)", mSoftLockAngle);
+            }
+        }
+    }
+
+    ImGui::Text("Commanded FFB Force: %d (Soft Lock: %d)", mLastCommandedForce, mLastSoftLockForce);
+    if (ImGui::TreeNodeEx("Active Forces Breakdown", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::BulletText("Auto-Centering: %d (%s)", mLastCenteringForce, mFFBEnableCentering ? "Enabled" : "Disabled");
+        ImGui::BulletText("Lateral Load (Drift/Turn): %d (%s)", mLastLateralForce, mFFBEnableLateral ? "Enabled" : "Disabled");
+        ImGui::BulletText("Collision Jolt: %d (%s, %d frames remaining)", mLastJoltForce, mFFBEnableCollisionJolts ? "Enabled" : "Disabled", mJoltFramesRemaining);
+        ImGui::BulletText("Offroad Terrain Texture: %d (%s, %s)", mLastRumbleForce, mFFBEnableOffroadRumble ? "Enabled" : "Disabled", mIsOffroadActive ? "ACTIVE" : "Idle");
+        ImGui::BulletText("Spinout 20Hz Shake: %s (%s, Magnitude: %d)", mIsSpinoutActive ? "ACTIVE" : "Idle", mFFBEnableSpinoutShake ? "Enabled" : "Disabled", mLastSineMagnitude);
+        ImGui::BulletText("Player Speed: %.2f | Effects: 0x%08X", mLastPlayerSpeed, mLastPlayerEffects);
+        ImGui::TreePop();
+    }
+
+    const char* statusStr = "Not Created";
+    if (mConstantEffectId != -1) {
+        if (mLastFFBEffectStatus == 1) statusStr = "Playing";
+        else if (mLastFFBEffectStatus == 0) statusStr = "Stopped (Auto-restarting)";
+        else statusStr = "Status Query Error";
+    }
+    ImGui::Text("FFB Motor Status: %s (Type: %s)", statusStr, 
+        (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
+
+    if (mLastFFBUpdateResult == 0) {
+        ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK (Auto-Rearms: %d)", mAutoRearmCount);
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "DirectInput Update Error: %s (Failures: %d, Auto-Rearms: %d)", 
+            mLastFFBError.empty() ? "Failed" : mLastFFBError.c_str(), mConsecutiveFFBErrors, mAutoRearmCount);
+    }
+}
+
 extern "C" {
 void WheelManager_Init() {
     WheelManager::GetInstance()->Init();
@@ -1224,6 +1324,10 @@ void WheelManager_DrawUI() {
 
 void WheelManager_DrawSettings() {
     WheelManager::GetInstance()->DrawSettings();
+}
+
+void WheelManager_DrawHapticsSettings() {
+    WheelManager::GetInstance()->DrawHapticsSettings();
 }
 
 float WheelManager_GetNativeSteer() {

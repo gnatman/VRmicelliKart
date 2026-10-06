@@ -360,6 +360,13 @@ void PortMenu::AddSettings() {
             WheelManager_DrawSettings();
         });
 
+    path.sidebarName = "Haptics";
+    AddSidebarEntry("Settings", "Haptics", 1);
+    AddWidget(path, "Haptics Settings", WIDGET_CUSTOM)
+        .CustomFunction([](WidgetInfo& info) {
+            WheelManager_DrawHapticsSettings();
+        });
+
     path.sidebarName = "Telemetry";
     AddSidebarEntry("Settings", "Telemetry", 1);
     AddWidget(path, "Telemetry Settings", WIDGET_CUSTOM)
@@ -771,6 +778,29 @@ void PortMenu::AddVR() {
             .Max(3.0f)
             .DefaultValue(1.0f)
             .Tooltip("Physical width of the 2D HUD quad in meters."));
+
+    AddSidebarEntry("VR", "Diagnostics", 1);
+    path.sidebarName = "Diagnostics";
+
+    AddWidget(path, "Log Item Box Draw (1 Frame)", WIDGET_CVAR_CHECKBOX)
+        .CVar("gDebugItemBoxLog")
+        .Options(CheckboxOptions().Tooltip("Logs vertex, depth, and culling data for 1 VR frame to the log/console. Automatically unchecks itself."));
+
+    AddWidget(path, "Disable Item Box Depth Test", WIDGET_CVAR_CHECKBOX)
+        .CVar("gDebugItemBoxNoDepthTest")
+        .Options(CheckboxOptions().Tooltip("Forces depth testing off when rendering the item box 3D diamond."));
+
+    AddWidget(path, "Disable ? Quad Depth Write", WIDGET_CVAR_CHECKBOX)
+        .CVar("gDebugItemBoxNoQuadDepthWrite")
+        .Options(CheckboxOptions().Tooltip("Prevents the interior question mark quad from writing to the depth buffer."));
+
+    AddWidget(path, "Disable Slope-Scaled Depth Bias", WIDGET_CVAR_CHECKBOX)
+        .CVar("gDebugItemBoxNoSSDB")
+        .Options(CheckboxOptions().Tooltip("Disables slope-scaled depth bias (decal offset) in the D3D11 rasterizer."));
+
+    AddWidget(path, "Disable Item Box Culling", WIDGET_CVAR_CHECKBOX)
+        .CVar("gDebugItemBoxDisableCull")
+        .Options(CheckboxOptions().Tooltip("Disables software backface/frontface culling when rendering the item box diamond."));
 }
 
 PortMenu::PortMenu(const std::string& consoleVariable, const std::string& name)
