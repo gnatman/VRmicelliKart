@@ -63,7 +63,7 @@ void update_actor_banana(struct BananaActor* banana) {
                     player->triggers &= ~DRAG_ITEM_EFFECT;
                     func_800C9060(player - gPlayerOne, SOUND_ARG_LOAD(0x19, 0x00, 0x80, 0x12));
                     pad3 = controller->rawStickY;
-                    if ((pad3 > 30.0f) && (controller->rawStickX < 10) && (controller->rawStickX >= -9)) {
+                    if ((pad3 > 30.0f) && (WheelManager_IsZUpActive() || ((controller->rawStickX < 10) && (controller->rawStickX >= -9)))) {
                         pad3 = pad3 - ((f32) 30);
                         pad3 = (pad3 / 20.0f) + 0.5f;
                         if (player->speed < 2.0f) {

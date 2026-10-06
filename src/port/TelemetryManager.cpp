@@ -70,12 +70,14 @@ struct TelemetryManager::Impl {
     int airborneFrames = 0;
     int landingShockFrames = 0;
 
-    // Gear shift on boost / item tracking
+    // Boost & surge kick tracking
     bool wasBoosting = false;
-    int boostPulseFrames = 0;
+    bool wasBoostingSustained = false;
+    int boostSurgeFrames = 0;
+    int boostSurgeTotalFrames = 45;
+    int boostExitFrames = 0;
     int itemPulseFrames = 0;
     bool itemIsBoost = false;
-    int itemSurgeFrames = 0;
 
     // Previous speed for wall-hit / collision drop
     float lastSpeed = 0.0f;
@@ -130,6 +132,7 @@ void TelemetryManager::LoadSettings() {
     mSpeedFactor = CVarGetFloat("gTelemetry.SpeedFactor", 3.6f);
     mSmoothingAlpha = CVarGetFloat("gTelemetry.SmoothingAlpha", 0.65f);
     mMaxAccel = CVarGetFloat("gTelemetry.MaxAccel", 30.0f);
+    mBoostSurgeForce = CVarGetFloat("gTelemetry.BoostSurgeForce", 28.0f);
     std::string ip = CVarGetString("gTelemetry.IP", "127.0.0.1");
     int port = CVarGetInteger("gTelemetry.Port", 20777);
 
@@ -183,9 +186,11 @@ void TelemetryManager::Update() {
         pImpl->wasAirborne = false;
         pImpl->airborneFrames = 0;
         pImpl->landingShockFrames = 0;
-        pImpl->boostPulseFrames = 0;
+        pImpl->boostSurgeFrames = 0;
+        pImpl->boostExitFrames = 0;
+        pImpl->wasBoosting = false;
+        pImpl->wasBoostingSustained = false;
         pImpl->itemPulseFrames = 0;
-        pImpl->itemSurgeFrames = 0;
         pImpl->itemIsBoost = false;
     }
 
@@ -339,7 +344,41 @@ void TelemetryManager::Update() {
     }
     packet.FlightIsOnGround = isAirborne ? 0 : 1;
 
-    // 5. Local Acceleration with EMA filtering and Landing Shock pulse
+    // 5. Local Acceleration with EMA filtering, Landing Shock pulse, and Boost Surge Kick
+    bool isBoosting = (p->boostTimer > 0) ||
+                      ((p->effects & (BOOST_EFFECT | BOOST_RAMP_WOOD_EFFECT | BOOST_RAMP_ASPHALT_EFFECT | STAR_EFFECT)) != 0) ||
+                      ((p->effects & 0x100) != 0); // Mini-turbo release
+
+    if (isBoosting && !pImpl->wasBoosting) {
+        pImpl->boostSurgeFrames = 45; // ~750ms onset boost kick
+        pImpl->boostSurgeTotalFrames = 45;
+    } else if (!isBoosting && pImpl->wasBoostingSustained) {
+        pImpl->boostExitFrames = 12; // ~200ms smooth taper off to prevent sudden nose-dive
+    }
+    pImpl->wasBoosting = isBoosting;
+    pImpl->wasBoostingSustained = isBoosting;
+
+    float boostSurge = 0.0f;
+    if (pImpl->boostSurgeFrames > 0) {
+        // First 15 frames (~250ms): 100% full kick
+        // Frames 16-45: smoothly ramp down from 100% to 60% sustained level
+        if (pImpl->boostSurgeFrames > 30) {
+            boostSurge = mBoostSurgeForce;
+        } else {
+            float t = (float)pImpl->boostSurgeFrames / 30.0f; // 1.0 down to 0.0
+            boostSurge = mBoostSurgeForce * (0.6f + 0.4f * t);
+        }
+        pImpl->boostSurgeFrames--;
+    } else if (isBoosting) {
+        // Sustained boost (e.g. Star or prolonged mushroom timer)
+        boostSurge = mBoostSurgeForce * 0.6f;
+    } else if (pImpl->boostExitFrames > 0) {
+        // Smoothly exit after boost ends
+        float t = (float)pImpl->boostExitFrames / 12.0f;
+        boostSurge = mBoostSurgeForce * 0.6f * t;
+        pImpl->boostExitFrames--;
+    }
+
     if (discontinuity || !pImpl->accelInitialized) {
         pImpl->prevLocalVel[0] = lvX;
         pImpl->prevLocalVel[1] = lvY;
@@ -357,7 +396,7 @@ void TelemetryManager::Update() {
         float rawSway  = (lvX - pImpl->prevLocalVel[0]) / dt;
         float rawHeave = (lvY - pImpl->prevLocalVel[1]) / dt;
 
-        if (p->speed < 0.08f && !isAirborne) {
+        if (p->speed < 0.08f && !isAirborne && pImpl->boostSurgeFrames == 0) {
             rawSurge = 0.0f;
             rawSway  = 0.0f;
             rawHeave = 0.0f;
@@ -366,16 +405,15 @@ void TelemetryManager::Update() {
             pImpl->smoothedHeave = 0.0f;
             pImpl->landingShockFrames = 0;
         } else {
+            // If exiting boost or boosting, damp negative rawSurge so deceleration from boost speed doesn't jerk the rig forward
+            if ((isBoosting || pImpl->boostExitFrames > 0) && rawSurge < 0.0f) {
+                rawSurge *= 0.2f;
+            }
+
             // Apply landing compression shock to vertical heave
             if (pImpl->landingShockFrames > 0) {
                 rawHeave += 22.0f; // Downward jolt on touchdown
                 pImpl->landingShockFrames--;
-            }
-
-            // Apply longitudinal surge kick on Mushroom / Boost item activation
-            if (pImpl->itemSurgeFrames > 0) {
-                rawSurge += 25.0f; // Vigorous forward acceleration kick (~2.5G)
-                pImpl->itemSurgeFrames--;
             }
 
             // Exponential Moving Average low-pass filter
@@ -386,7 +424,8 @@ void TelemetryManager::Update() {
         }
 
         float maxA = mMaxAccel;
-        packet.LocalSurgeMs2 = std::clamp(pImpl->smoothedSurge, -maxA, maxA);
+        float maxSurge = std::max(mMaxAccel, mBoostSurgeForce);
+        packet.LocalSurgeMs2 = std::clamp(pImpl->smoothedSurge + boostSurge, -maxA, maxSurge);
         packet.LocalSwayMs2  = std::clamp(pImpl->smoothedSway,  -maxA, maxA);
         packet.LocalHeaveMs2 = std::clamp(pImpl->smoothedHeave, -maxA, maxA);
 
@@ -425,23 +464,10 @@ void TelemetryManager::Update() {
     packet.Throttle = throttle;
     packet.Brake = brake;
 
-    // 9. Gear & Engine RPM (with Item / Boost Gear Shift kick)
-    bool isBoosting = (p->boostTimer > 0) ||
-                      ((p->effects & (BOOST_EFFECT | BOOST_RAMP_WOOD_EFFECT | BOOST_RAMP_ASPHALT_EFFECT | STAR_EFFECT)) != 0) ||
-                      ((p->effects & 0x100) != 0); // Mini-turbo release
-
-    if (isBoosting && !pImpl->wasBoosting) {
-        pImpl->boostPulseFrames = 15; // ~250ms gear shift pulse
-        pImpl->itemSurgeFrames = 6;   // ~100ms surge acceleration kick for motion rig & shaker impact
-    }
-    pImpl->wasBoosting = isBoosting;
-
-    // Check gear pulses: item pulse or boost pulse
-    if (pImpl->boostPulseFrames > 0 || (pImpl->itemPulseFrames > 0 && pImpl->itemIsBoost)) {
-        if (pImpl->boostPulseFrames > 0) pImpl->boostPulseFrames--;
-        if (pImpl->itemPulseFrames > 0) pImpl->itemPulseFrames--;
-        strncpy(packet.Gear, "2", sizeof(packet.Gear)); // Shift to 2 during mushroom / boost
-    } else if (pImpl->itemPulseFrames > 0) {
+    // 9. Gear & Engine RPM
+    // Simulated gear shift pulse only for standard item release (shells/bananas) if enabled;
+    // boosting remains in gear 1 without artificial shift or RPM spikes.
+    if (pImpl->itemPulseFrames > 0 && !pImpl->itemIsBoost) {
         pImpl->itemPulseFrames--;
         strncpy(packet.Gear, "2", sizeof(packet.Gear)); // Crisp gear pulse on standard item use
     } else if (p->kartProps & MOVE_BACKWARDS) {
@@ -453,11 +479,7 @@ void TelemetryManager::Update() {
     }
 
     packet.EngineMaxRpm = 10000.0f;
-    if (isBoosting || pImpl->itemIsBoost) {
-        packet.EngineRpm = 9500.0f;
-    } else {
-        packet.EngineRpm = 1000.0f + std::clamp((p->speed / 8.0f), 0.0f, 1.0f) * 7500.0f;
-    }
+    packet.EngineRpm = 1000.0f + std::clamp((p->speed / 12.0f), 0.0f, 1.0f) * 8500.0f;
 
     // 10. Wheel Slip & Traction Loss
     bool isSpinout = ((p->effects & (0x40 | 0x80 | 0x20000 | 0x10000000)) != 0) ||
@@ -614,6 +636,12 @@ void TelemetryManager::DrawSettings() {
         }
         ImGui::TextDisabled("Clamp acceleration to prevent hitting platform limits. ~30 = ~3G.");
 
+        if (ImGui::SliderFloat("Boost Surge Kick (m/s^2)", &mBoostSurgeForce, 0.0f, 50.0f, "%.1f")) {
+            CVarSetFloat("gTelemetry.BoostSurgeForce", mBoostSurgeForce);
+            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+        ImGui::TextDisabled("Longitudinal acceleration kick injected during boosts (Mushroom, Star, boost pad).");
+
         ImGui::Separator();
         ImGui::Text("Live Telemetry Status:");
         if (gDemoMode != DEMO_MODE_INACTIVE) {
@@ -628,7 +656,8 @@ void TelemetryManager::DrawSettings() {
                 ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Status: Active (In Race)");
                 ImGui::Text("Pitch: %.1f deg | Roll: %.1f deg", (float)p->slopeAccel * binToDeg, (float)p->unk_206 * binToDeg);
                 ImGui::Text("Yaw: %.1f deg | Speed: %.1f km/h", (float)p->rotation[1] * binToDeg, p->speed * mSpeedFactor);
-                ImGui::Text("Airborne: %s | Surface: %d", ((p->effects & 8) == 8) ? "YES" : "No", (int)p->surfaceType);
+                ImGui::Text("Surge: %+.1f m/s^2 | Sway: %+.1f m/s^2 | Heave: %+.1f m/s^2", pImpl->smoothedSurge, pImpl->smoothedSway, pImpl->smoothedHeave);
+                ImGui::Text("Airborne: %s | Surface: %d | Boosting: %s", ((p->effects & 8) == 8) ? "YES" : "No", (int)p->surfaceType, (p->boostTimer > 0) ? "YES" : "No");
                 ImGui::Text("Effects: 0x%08X", p->effects);
             }
         } else {
@@ -655,12 +684,12 @@ void TelemetryManager::TriggerItemFeedback(int itemId) {
 
     if (isBoostItem) {
         pImpl->itemIsBoost = true;
-        pImpl->itemPulseFrames = 15; // ~250ms strong gear shift pulse
-        pImpl->itemSurgeFrames = 6;  // ~100ms forward acceleration jolt (~2.5G)
+        pImpl->boostSurgeFrames = 45; // ~750ms forward acceleration kick
+        pImpl->boostSurgeTotalFrames = 45;
+        pImpl->itemPulseFrames = 0;   // No simulated gear shift for boosts
     } else {
         pImpl->itemIsBoost = false;
-        pImpl->itemPulseFrames = 8;  // ~133ms crisp gear shift pulse
-        pImpl->itemSurgeFrames = 0;
+        pImpl->itemPulseFrames = 8;   // ~133ms crisp gear shift pulse
     }
 }
 

@@ -77,7 +77,8 @@ void WheelManager::LoadSettings() {
     mJoystickGuid = CVarGetString("gWheel.JoystickGuid", "");
 
     std::vector<uint16_t> buttons = { 
-        BTN_A, BTN_B, BTN_START, BTN_L, BTN_R, BTN_Z, 
+        BTN_A, BTN_B, BTN_START, BTN_L, BTN_R, BTN_Z,
+        WHEEL_ACTION_Z_UP, WHEEL_ACTION_Z_DOWN,
         BTN_CUP, BTN_CDOWN, BTN_CLEFT, BTN_CRIGHT,
         BTN_DUP, BTN_DDOWN, BTN_DLEFT, BTN_DRIGHT 
     };
@@ -858,21 +859,52 @@ void WheelManager::ProcessInput(OSContPad* pad) {
     }
 
     // Buttons & Hats
-    for (auto const& [btn, mappings] : mButtonMap) {
+    bool zUpActive = false;
+    bool zDownActive = false;
+
+    for (auto const& [action, mappings] : mButtonMap) {
         for (const auto& mapping : mappings) {
+            bool triggered = false;
             if (mapping.type == MappingType::Button && mapping.index != -1) {
                 if (SDL_JoystickGetButton(mJoystick, mapping.index)) {
-                    pad->button |= btn;
-                    break; // Action triggered, no need to check other mappings for THIS action
+                    triggered = true;
                 }
             } else if (mapping.type == MappingType::Hat && mapping.index != -1) {
                 uint8_t state = SDL_JoystickGetHat(mJoystick, mapping.index);
                 if (state & mapping.hatValue) {
-                    pad->button |= btn;
-                    break;
+                    triggered = true;
                 }
             }
+
+            if (triggered) {
+                if (action == WHEEL_ACTION_Z_UP) {
+                    pad->button |= BTN_Z;
+                    zUpActive = true;
+                } else if (action == WHEEL_ACTION_Z_DOWN) {
+                    pad->button |= BTN_Z;
+                    zDownActive = true;
+                } else {
+                    pad->button |= action;
+                }
+                break; // Action triggered, no need to check other mappings for THIS action
+            }
         }
+    }
+
+    mZUpActive = zUpActive;
+    mZDownActive = zDownActive;
+
+    if (zUpActive && !zDownActive) {
+        pad->stick_y = 127;
+        mStickYHoldFrames = 5;
+        mStickYHoldVal = 127;
+    } else if (zDownActive && !zUpActive) {
+        pad->stick_y = -127;
+        mStickYHoldFrames = 5;
+        mStickYHoldVal = -127;
+    } else if (mStickYHoldFrames > 0) {
+        pad->stick_y = mStickYHoldVal;
+        mStickYHoldFrames--;
     }
 
     UpdateFFB();
@@ -1007,6 +1039,13 @@ void WheelManager::DrawSettings() {
         auto DrawButtonMapping = [&](const char* label, uint16_t bitmask) {
             ImGui::PushID(label);
             ImGui::Text("%s:", label);
+            if (bitmask == BTN_Z && ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Item action: standard Z button (normal fire/drag)");
+            } else if (bitmask == WHEEL_ACTION_Z_UP && ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Item action: Hold Z + Analog Up (shoots item forward)");
+            } else if (bitmask == WHEEL_ACTION_Z_DOWN && ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Item action: Hold Z + Analog Down (drops item behind)");
+            }
             
             auto& mappings = mButtonMap[bitmask];
             
@@ -1052,7 +1091,9 @@ void WheelManager::DrawSettings() {
 
         DrawButtonMapping("A (Accelerate)", BTN_A);
         DrawButtonMapping("B (Brake/Reverse)", BTN_B);
-        DrawButtonMapping("Z (Item)", BTN_Z);
+        DrawButtonMapping("Z", BTN_Z);
+        DrawButtonMapping("Z + Up", WHEEL_ACTION_Z_UP);
+        DrawButtonMapping("Z + Down", WHEEL_ACTION_Z_DOWN);
         DrawButtonMapping("R (Drift/Jump)", BTN_R);
         DrawButtonMapping("Start", BTN_START);
         DrawButtonMapping("L (Toggle Map)", BTN_L);
@@ -1247,7 +1288,7 @@ void WheelManager::DrawHapticsSettings() {
     if (ImGui::Button("Test Item Boost Feedback")) {
         TelemetryManager::GetInstance()->TriggerItemFeedback(ITEM_MUSHROOM);
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sends a boost gear-shift pulse to SimHub ShakeIt / motion telemetry.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sends a boost surge kick to SimHub motion telemetry.");
 
     ImGui::Separator();
 
@@ -1357,5 +1398,25 @@ float WheelManager_GetBrake() {
 int WheelManager_IsNativeSteerActive() {
     WheelManager* wm = WheelManager::GetInstance();
     return (wm->IsEnabled() && CVarGetInteger("gWheel.NativeSteer", 1)) ? 1 : 0;
+}
+
+int WheelManager_IsZUpActive() {
+    WheelManager* wm = WheelManager::GetInstance();
+    return (wm && wm->IsEnabled() && wm->IsZUpActive()) ? 1 : 0;
+}
+
+int WheelManager_IsZDownActive() {
+    WheelManager* wm = WheelManager::GetInstance();
+    return (wm && wm->IsEnabled() && wm->IsZDownActive()) ? 1 : 0;
+}
+
+int WheelManager_IsZUpHeld() {
+    WheelManager* wm = WheelManager::GetInstance();
+    return (wm && wm->IsEnabled() && wm->IsZUpHeld()) ? 1 : 0;
+}
+
+int WheelManager_IsZDownHeld() {
+    WheelManager* wm = WheelManager::GetInstance();
+    return (wm && wm->IsEnabled() && wm->IsZDownHeld()) ? 1 : 0;
 }
 }

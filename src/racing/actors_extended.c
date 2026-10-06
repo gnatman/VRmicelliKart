@@ -17,6 +17,7 @@
 #include "sounds.h"
 #include "port/Game.h"
 #include "port/TelemetryManager.h"
+#include "port/WheelManager.h"
 
 void copy_collision(Collision* src, Collision* dest) {
     dest->unk30 = src->unk30;
@@ -302,7 +303,7 @@ void update_actor_banana_bunch(struct BananaBunchParent* banana_bunch) {
                     controller->buttonPressed &= ~Z_TRIG;
                     func_800C9060(owner - gPlayerOne, SOUND_ARG_LOAD(0x19, 0x00, 0x80, 0x12));
                     if ((controller->rawStickY >= 0x1F) &&
-                        ((controller->rawStickX < 0x28) && (controller->rawStickX >= -0x27))) {
+                        (WheelManager_IsZUpActive() || ((controller->rawStickX < 0x28) && (controller->rawStickX >= -0x27)))) {
                         func_802B0788(controller->rawStickY, banana_bunch, owner);
                     } else {
                         drop_banana_in_banana_bunch(banana_bunch);

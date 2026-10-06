@@ -1,5 +1,8 @@
 #pragma once
 
+#define WHEEL_ACTION_Z_UP   0xF001
+#define WHEEL_ACTION_Z_DOWN 0xF002
+
 #ifdef __cplusplus
 
 #include <string>
@@ -29,6 +32,10 @@ public:
     void SetFFBEnabled(bool enabled) { mFFBEnabled = enabled; SaveSettings(); }
 
     bool IsEnabled();
+    bool IsZUpActive() const { return mZUpActive || (mStickYHoldFrames > 0 && mStickYHoldVal > 0); }
+    bool IsZDownActive() const { return mZDownActive || (mStickYHoldFrames > 0 && mStickYHoldVal < 0); }
+    bool IsZUpHeld() const { return mZUpActive; }
+    bool IsZDownHeld() const { return mZDownActive; }
 
 private:
     WheelManager();
@@ -141,6 +148,12 @@ private:
     bool mIsMappingAxis = false;
     int mMappingAxisType = -1; // 0=Steering, 1=Throttle, 2=Brake
 
+    // Z item throwing button combo state
+    bool mZUpActive = false;
+    bool mZDownActive = false;
+    int mStickYHoldFrames = 0;
+    int8_t mStickYHoldVal = 0;
+
     void LoadSettings();
     void SaveSettings();
 };
@@ -163,6 +176,10 @@ float WheelManager_GetThrottle();
 float WheelManager_GetBrake();
 // Returns 1 if wheel is enabled AND native steering mode is active, 0 otherwise.
 int   WheelManager_IsNativeSteerActive();
+int   WheelManager_IsZUpActive();
+int   WheelManager_IsZDownActive();
+int   WheelManager_IsZUpHeld();
+int   WheelManager_IsZDownHeld();
 
 #ifdef __cplusplus
 }

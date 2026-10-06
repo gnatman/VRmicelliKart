@@ -24,6 +24,7 @@ private:
     float mSpeedFactor = 3.6f;
     float mSmoothingAlpha = 0.3f;
     float mMaxAccel = 30.0f;
+    float mBoostSurgeForce = 28.0f;
     
     // Opaque handle for the networking implementation to avoid including winsock2.h here
     struct Impl;
