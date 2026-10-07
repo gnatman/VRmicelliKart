@@ -19,6 +19,7 @@
 #include "engine/Matrix.h"
 #include "engine/tracks/Track.h"
 #include "port/Game.h"
+#include "bridge/VRHudBridge.h"
 
 struct UnkStruct80287560 {
     s16 unk0;
@@ -83,10 +84,18 @@ void func_80281D00(void) {
     gSPPerspNormalize(gDisplayListHead++, perspNorm);
     gSPMatrix(gDisplayListHead++, camera->perspectiveMatrix,
               G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+
+    VR_UpdateBaseTrackingFromLookAt(camera->pos, camera->lookAt, camera->up);
+
     guLookAt(camera->lookAtMatrix, camera->pos[0], camera->pos[1], camera->pos[2], camera->lookAt[0],
              camera->lookAt[1], camera->lookAt[2], camera->up[0], camera->up[1], camera->up[2]);
     gSPMatrix(gDisplayListHead++, camera->lookAtMatrix,
               G_MTX_NOPUSH | G_MTX_MUL | G_MTX_PROJECTION);
+
+    if (VR_IsVREnabled()) {
+        CM_RaceDrawVRSky(gScreenOneCtx);
+    }
+
     mtxf_identity(matrix);
     render_set_position(matrix, 0);
 
@@ -99,6 +108,8 @@ void func_80281D00(void) {
     gSPDisplayList(gDisplayListHead++, VIRTUAL_TO_PHYSICAL2(&D_80284EE0));
     func_80093F10();
     ceremony_transition_sliding_borders();
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     func_80281C40();
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
     init_rdp();
 }

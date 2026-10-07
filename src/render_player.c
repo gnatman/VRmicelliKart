@@ -1613,7 +1613,7 @@ void render_player(Player* player, s8 playerId, s8 screenId) {
         }
     }
     if ((player->type & PLAYER_INVISIBLE_OR_BOMB) != PLAYER_INVISIBLE_OR_BOMB) {
-        if (CVarGetInteger("gVRCameraMode", 0) == 1 && playerId == screenId && CVarGetInteger("gVRDrawCockpit", 1) == 1) {
+        if (gGamestate == RACING && CVarGetInteger("gVRCameraMode", 0) == 1 && playerId == screenId && CVarGetInteger("gVRDrawCockpit", 1) == 1) {
             FirstPersonCockpit_Render(player, &cameras[screenId], playerId, screenId);
         } else {
             render_kart(player, playerId, screenId, var_v1);

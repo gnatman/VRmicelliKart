@@ -33,6 +33,7 @@
 #include <assets/textures/startup_logo.h>
 #include "buffers.h"
 #include "racing/race_logic.h"
+#include "port/Game.h"
 #include "ending/code_80281C40.h"
 #include "spawn_players.h"
 #include "render_player.h"
@@ -11415,15 +11416,19 @@ void func_800AC458(MenuItem* arg0) {
 
             if ((arg0->param2 + temp) < 0) {
                 arg0->param2 += temp;
-                gScreenOneCtx->screenStartX += temp;
-                gScreenTwoCtx->screenStartX -= temp;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartX += temp;
+                    gScreenTwoCtx->screenStartX -= temp;
+                }
             } else {
                 arg0->param2 = 0;
                 arg0->column = 0;
                 arg0->state = 2;
                 arg0->param1 = 0;
-                gScreenOneCtx->screenStartX = 0x00F0;
-                gScreenTwoCtx->screenStartX = 0x0050;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartX = 0x00F0;
+                    gScreenTwoCtx->screenStartX = 0x0050;
+                }
             }
             break;
         case 2:
@@ -11520,14 +11525,18 @@ void func_800AC458(MenuItem* arg0) {
             arg0->row = arg0->param2;
             if (arg0->param2 < 0xF0) {
                 arg0->param2 += 0x10;
-                gScreenOneCtx->screenStartY += 0x10;
-                gScreenTwoCtx->screenStartY -= 0x10;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartY += 0x10;
+                    gScreenTwoCtx->screenStartY -= 0x10;
+                }
             } else {
                 arg0->param2 = 0;
                 arg0->state = 0x0000000D;
                 arg0->param1 = 0;
-                gScreenOneCtx->screenStartY = 0x012C;
-                gScreenTwoCtx->screenStartY = -0x003C;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartY = 0x012C;
+                    gScreenTwoCtx->screenStartY = -0x003C;
+                }
                 D_8015F894 = 4;
                 func_800CA330(0x19U);
             }
@@ -11823,8 +11832,10 @@ void func_800AD2E8(MenuItem* arg0) {
             }
             if ((arg0->param2 + var_a1) < 0) {
                 arg0->param2 += var_a1;
-                gScreenOneCtx->screenStartX += var_a1;
-                gScreenTwoCtx->screenStartX -= var_a1;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartX += var_a1;
+                    gScreenTwoCtx->screenStartX -= var_a1;
+                }
             } else {
                 arg0->param2 = 0;
                 arg0->column = 0;
@@ -11832,8 +11843,10 @@ void func_800AD2E8(MenuItem* arg0) {
                 if ((arg0->state == 9) && (gPostTimeTrialReplayCannotSave == 1)) {
                     arg0->state--;
                 }
-                gScreenOneCtx->screenStartX = 0x00F0;
-                gScreenTwoCtx->screenStartX = 0x0050;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartX = 0x00F0;
+                    gScreenTwoCtx->screenStartX = 0x0050;
+                }
             }
             break;
         case 5:
@@ -12102,8 +12115,10 @@ void func_800AD2E8(MenuItem* arg0) {
             arg0->row = arg0->param2;
             if (arg0->param2 < 0xF0) {
                 arg0->param2 += 0x10;
-                gScreenOneCtx->screenStartY += 0x10;
-                gScreenTwoCtx->screenStartY -= 0x10;
+                if (!VR_IsVREnabled()) {
+                    gScreenOneCtx->screenStartY += 0x10;
+                    gScreenTwoCtx->screenStartY -= 0x10;
+                }
                 return;
             }
             switch (arg0->param1) {
@@ -12129,8 +12144,10 @@ void func_800AD2E8(MenuItem* arg0) {
             }
             arg0->param2 = 0;
             arg0->state = 0x0000001F;
-            gScreenOneCtx->screenStartY = 0x012C;
-            gScreenTwoCtx->screenStartY = -0x003C;
+            if (!VR_IsVREnabled()) {
+                gScreenOneCtx->screenStartY = 0x012C;
+                gScreenTwoCtx->screenStartY = -0x003C;
+            }
             D_8015F894 = 4;
             func_800CA330(0x19U);
             break;

@@ -428,6 +428,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE tomlplusplus::tomlplusplus)
 set(EXCLUDE_MPQ_SUPPORT TRUE CACHE BOOL "")
 set(ENABLE_EXP_AUTO_CONFIGURE_CONTROLLERS ON CACHE BOOL "")
 add_compile_definitions(EXCLUDE_MPQ_SUPPORT)
+add_compile_definitions(ENABLE_VR)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
   find_package(SDL2)

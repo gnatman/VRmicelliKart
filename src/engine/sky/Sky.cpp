@@ -1,5 +1,6 @@
 #include "Sky.h"
 
+#include <cmath>
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include "port/Engine.h"
@@ -65,10 +66,54 @@ Vtx Sky::mSkyboxScreenFour[8] = { // D_802B8A10
 };
 
 Sky* Sky::Instance;
+alignas(16) Vtx Sky::mVRSkyVtx[17];
+alignas(16) Vtx Sky::mVRFloorVtx[17];
 
 Sky::Sky() {
     Instance = this;
     guMtxIdent(&mSkyboxMatrix);
+
+    // Initialize 3D Sky Dome vertices (16 segments, radius 8000)
+    // Upper Dome Apex (Zenith at +Y)
+    mVRSkyVtx[0].v.ob[0] = 0;
+    mVRSkyVtx[0].v.ob[1] = 8000;
+    mVRSkyVtx[0].v.ob[2] = 0;
+    mVRSkyVtx[0].v.flag = 0;
+    mVRSkyVtx[0].v.tc[0] = 0;
+    mVRSkyVtx[0].v.tc[1] = 0;
+    mVRSkyVtx[0].v.cn[3] = 0xFF;
+
+    // Lower Floor Dome Apex (Nadir at -Y)
+    mVRFloorVtx[0].v.ob[0] = 0;
+    mVRFloorVtx[0].v.ob[1] = -8000;
+    mVRFloorVtx[0].v.ob[2] = 0;
+    mVRFloorVtx[0].v.flag = 0;
+    mVRFloorVtx[0].v.tc[0] = 0;
+    mVRFloorVtx[0].v.tc[1] = 0;
+    mVRFloorVtx[0].v.cn[3] = 0xFF;
+
+    // Horizon Perimeter Ring (16 radial points)
+    for (int k = 0; k < 16; k++) {
+        float angle = (float)k * (2.0f * 3.14159265358979323846f / 16.0f);
+        short x = (short)(8000.0f * cosf(angle));
+        short z = (short)(8000.0f * sinf(angle));
+
+        mVRSkyVtx[k + 1].v.ob[0] = x;
+        mVRSkyVtx[k + 1].v.ob[1] = 0;
+        mVRSkyVtx[k + 1].v.ob[2] = z;
+        mVRSkyVtx[k + 1].v.flag = 0;
+        mVRSkyVtx[k + 1].v.tc[0] = 0;
+        mVRSkyVtx[k + 1].v.tc[1] = 0;
+        mVRSkyVtx[k + 1].v.cn[3] = 0xFF;
+
+        mVRFloorVtx[k + 1].v.ob[0] = x;
+        mVRFloorVtx[k + 1].v.ob[1] = 0;
+        mVRFloorVtx[k + 1].v.ob[2] = z;
+        mVRFloorVtx[k + 1].v.flag = 0;
+        mVRFloorVtx[k + 1].v.tc[0] = 0;
+        mVRFloorVtx[k + 1].v.tc[1] = 0;
+        mVRFloorVtx[k + 1].v.cn[3] = 0xFF;
+    }
 }
 
 Sky* Sky::GetSky() {
@@ -153,6 +198,9 @@ void Sky::SetColours(Vtx* skybox) { // func_802A450C(Vtx* skybox)
 }
 
 void Sky::Draw(ScreenContext* screen) { // func_802A4A0C(Vtx* vtx, ScreenContext* screen)
+    if (VR_IsVREnabled()) {
+        return;
+    }
     Camera* camera = screen->camera;
     s16 temp_t5;
     f32 temp_f0;
@@ -238,6 +286,9 @@ void Sky::Draw(ScreenContext* screen) { // func_802A4A0C(Vtx* vtx, ScreenContext
 }
 
 void Sky::DrawFloor(ScreenContext* screen) { // func_802A487C
+    if (VR_IsVREnabled()) {
+        return;
+    }
     init_rdp();
 
     Vtx* vtx;
@@ -332,6 +383,9 @@ EXTERN_C void InitSkyActors(ScreenContext* screen) {
 }
 
 EXTERN_C void DrawSkyActors(ScreenContext* screen, s32 arg0) {
+    if (VR_IsVREnabled()) {
+        return;
+    }
     if (CVarGetInteger("gDrawSkyActors", true) == false) {
         return;
     }
@@ -344,7 +398,95 @@ EXTERN_C void DrawSkyActors(ScreenContext* screen, s32 arg0) {
 }
 
 EXTERN_C void TickSkyActors() {
+    if (VR_IsVREnabled()) {
+        return;
+    }
     for (auto& cloud : Sky::Instance->GetSkyActors()) {
         cloud->Tick();
     }
 }
+
+void Sky::DrawVRSky(ScreenContext* screen) {
+    Camera* camera = screen->camera;
+    if (camera == nullptr) {
+        return;
+    }
+
+    if (bFog) {
+        s32 r = gFogColour.r < 0 ? 0 : (gFogColour.r > 255 ? 255 : gFogColour.r);
+        s32 g = gFogColour.g < 0 ? 0 : (gFogColour.g > 255 ? 255 : gFogColour.g);
+        s32 b = gFogColour.b < 0 ? 0 : (gFogColour.b > 255 ? 255 : gFogColour.b);
+        for (int i = 0; i < 17; i++) {
+            mVRSkyVtx[i].v.cn[0] = (u8)r;
+            mVRSkyVtx[i].v.cn[1] = (u8)g;
+            mVRSkyVtx[i].v.cn[2] = (u8)b;
+            mVRFloorVtx[i].v.cn[0] = (u8)r;
+            mVRFloorVtx[i].v.cn[1] = (u8)g;
+            mVRFloorVtx[i].v.cn[2] = (u8)b;
+        }
+    } else if (CM_GetProps() != nullptr) {
+        SkyboxColours* prop = (SkyboxColours*)&CM_GetProps()->Skybox;
+
+        // Apex (zenith): Top color
+        mVRSkyVtx[0].v.cn[0] = prop->TopRight.r;
+        mVRSkyVtx[0].v.cn[1] = prop->TopRight.g;
+        mVRSkyVtx[0].v.cn[2] = prop->TopRight.b;
+
+        // Sky Horizon: Bottom color
+        for (int i = 1; i <= 16; i++) {
+            mVRSkyVtx[i].v.cn[0] = prop->BottomRight.r;
+            mVRSkyVtx[i].v.cn[1] = prop->BottomRight.g;
+            mVRSkyVtx[i].v.cn[2] = prop->BottomRight.b;
+        }
+
+        // Floor Horizon: FloorTop color
+        for (int i = 1; i <= 16; i++) {
+            mVRFloorVtx[i].v.cn[0] = prop->FloorTopRight.r;
+            mVRFloorVtx[i].v.cn[1] = prop->FloorTopRight.g;
+            mVRFloorVtx[i].v.cn[2] = prop->FloorTopRight.b;
+        }
+
+        // Floor Nadir: FloorBottom color
+        mVRFloorVtx[0].v.cn[0] = prop->FloorBottomRight.r;
+        mVRFloorVtx[0].v.cn[1] = prop->FloorBottomRight.g;
+        mVRFloorVtx[0].v.cn[2] = prop->FloorBottomRight.b;
+    }
+
+    // Position dome at camera eye position in world space
+    Mat4 skyMatrix;
+    mtxf_translate(skyMatrix, camera->pos);
+    render_set_position(skyMatrix, 0);
+
+    init_rdp();
+    gDPSetRenderMode(gDisplayListHead++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+    gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER | G_LIGHTING | G_CULL_BACK | G_CULL_FRONT);
+    gSPSetGeometryMode(gDisplayListHead++, G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+
+    // Draw upper sky dome (apex to horizon ring)
+    gSPVertex(gDisplayListHead++, (uintptr_t)mVRSkyVtx, 17, 0);
+    for (int i = 0; i < 16; i++) {
+        int next = (i + 1) % 16;
+        gSP1Triangle(gDisplayListHead++, 0, 1 + i, 1 + next, 0);
+    }
+
+    // Draw floor dome unless Rainbow Road
+    if (!IsRainbowRoad()) {
+        gSPVertex(gDisplayListHead++, (uintptr_t)mVRFloorVtx, 17, 0);
+        for (int i = 0; i < 16; i++) {
+            int next = (i + 1) % 16;
+            gSP1Triangle(gDisplayListHead++, 0, 1 + next, 1 + i, 0);
+        }
+    }
+
+    // Restore Z-buffer geometry mode and AA ZB render mode for course geometry
+    gSPSetGeometryMode(gDisplayListHead++, G_ZBUFFER | G_SHADE | G_CULL_BACK | G_LIGHTING | G_SHADING_SMOOTH);
+    gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+}
+
+EXTERN_C void CM_RaceDrawVRSky(ScreenContext* screen) {
+    if (Sky::Instance != nullptr) {
+        Sky::Instance->DrawVRSky(screen);
+    }
+}
+

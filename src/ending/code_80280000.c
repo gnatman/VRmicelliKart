@@ -29,6 +29,7 @@
 #include "engine/tracks/Track.h"
 #include "engine/Matrix.h"
 #include "port/Game.h"
+#include "bridge/VRHudBridge.h"
 
 s32 D_802874A0;
 // s32 D_802874A4[5];
@@ -65,10 +66,18 @@ void func_80280038(Camera* camera) {
     gSPPerspNormalize(gDisplayListHead++, perspNorm);
     gSPMatrix(gDisplayListHead++, camera->perspectiveMatrix,
               G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+
+    VR_UpdateBaseTrackingFromLookAt(camera->pos, camera->lookAt, camera->up);
+
     guLookAt(camera->lookAtMatrix, camera->pos[0], camera->pos[1], camera->pos[2], camera->lookAt[0],
              camera->lookAt[1], camera->lookAt[2], camera->up[0], camera->up[1], camera->up[2]);
     gSPMatrix(gDisplayListHead++, camera->lookAtMatrix,
               G_MTX_NOPUSH | G_MTX_MUL | G_MTX_PROJECTION);
+
+    if (VR_IsVREnabled()) {
+        CM_RaceDrawVRSky(gScreenOneCtx);
+    }
+
     gCurrentCourseId = gCreditsCourseId;
     TrackBrowser_SetTrackByIdx(gCreditsCourseId);
     mtxf_identity(matrix);
@@ -80,7 +89,9 @@ void func_80280038(Camera* camera) {
     render_object(gScreenOneCtx);
     render_player_snow_effect(camera);
     ceremony_transition_sliding_borders();
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     func_80281C40();
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
     init_rdp();
     func_80093F10();
     init_rdp();
@@ -198,6 +209,7 @@ void load_credits(void) {
     camera->up[1] = 1.0f;
     camera->up[2] = 0.0f;
     init_cinematic_camera();
+    VR_UpdateBaseTrackingFromLookAt(camera->pos, camera->lookAt, camera->up);
     credits_spawn_actors();
     init_hud();
     func_80093E60();

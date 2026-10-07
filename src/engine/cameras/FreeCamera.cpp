@@ -64,6 +64,7 @@ void FreeCamera::SetViewProjection() {
 
     // LookAt (camera rotation)
     FrameInterpolation_RecordOpenChild("freecam_lookAt", FrameInterpolation_GetCameraEpoch());
+    VR_UpdateBaseTrackingFromLookAt(_camera->pos, _camera->lookAt, _camera->up);
     guLookAt(&LookAtMatrix,
         _camera->pos[0], _camera->pos[1], _camera->pos[2],
         _camera->lookAt[0], _camera->lookAt[1], _camera->lookAt[2],

@@ -243,6 +243,33 @@ void func_8028E678(void) {
 
     D_800DC5B0 = 1;
 
+    if (VR_IsVREnabled()) {
+        switch (D_8015F894) {
+            case 0:
+                D_800DC5B8 = 0;
+                D_8015F894 = 3;
+                func_80092500();
+                if (gModeSelection == GRAND_PRIX) {
+                    func_80019DE4();
+                } else {
+                    func_80019E58();
+                }
+                break;
+            case 3:
+                break;
+            case 4:
+                gIsInQuitToMenuTransition = 1;
+                gQuitToMenuTransitionCounter = 5;
+                gRaceState = RACE_EXIT;
+                set_next_course();
+                break;
+            default:
+                D_8015F894 = 3;
+                break;
+        }
+        return;
+    }
+
     switch (D_8015F894) {
         case 0:
             // Unused switch?

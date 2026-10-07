@@ -561,6 +561,9 @@ void CM_DrawParticles(s32 cameraId) {
 }
 
 void CM_RaceDrawSky(ScreenContext* screen, s32 someId) {
+    if (VR_IsVREnabled()) {
+        return;
+    }
     // if (bDrawSkybox) {
     if (CVarGetInteger("gDrawSky", true) == true) {
         Sky::Instance->Draw(screen);

@@ -7,6 +7,7 @@
 #include "math_util.h"
 #include "ceremony_and_credits.h"
 #include "main.h"
+#include "port/Game.h"
 
 void update_camera_podium_ceremony(void) {
     Camera* camera;
@@ -41,4 +42,5 @@ void init_camera_podium_ceremony(void) {
     D_80150150 = 3.0f;
     D_8015014C = 6800.0f;
     init_cinematic_camera();
+    VR_UpdateBaseTrackingFromLookAt(cameras[0].pos, cameras[0].lookAt, cameras[0].up);
 }

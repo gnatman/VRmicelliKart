@@ -466,6 +466,7 @@ static void DrawDriftSparks(int tireSide, s16 driftState, Mat4 mtxCockpitBase,
 }
 
 void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 screenId) {
+    if (gGamestate != RACING) return;
     if (!sCockpitInitialized) {
         FirstPersonCockpit_Init();
     }

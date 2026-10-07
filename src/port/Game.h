@@ -101,6 +101,7 @@ void CM_TickParticles(void);
 void CM_DrawParticles(s32 cameraId);
 
 void CM_RaceDrawSky(ScreenContext* screen, s32 someId);
+void CM_RaceDrawVRSky(ScreenContext* screen);
 
 void CM_Waypoints(Player* player, int8_t playerId);
 
@@ -235,6 +236,9 @@ __attribute__((format(printf, 1, 2)))
 #endif
 
 NORETURN void CM_ThrowRuntimeError(const char* fmt, ...);
+
+bool VR_IsVREnabled(void);
+void VR_UpdateBaseTrackingFromLookAt(const float* eye, const float* at, const float* up);
 
 // NOLINTEND(readability-identifier-naming)
 

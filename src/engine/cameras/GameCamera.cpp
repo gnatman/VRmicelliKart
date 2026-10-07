@@ -5,6 +5,7 @@
 #include "engine/Matrix.h"
 #include "port/Game.h"
 #include <ship/Context.h>
+#include <vr/VRToggle.h>
 #include <math.h>
 
 extern "C" {
@@ -86,7 +87,7 @@ Mtx* GameCamera::GetLookAtMatrix() {
 }
 
 // Helper to convert LookAt parameters to a quaternion representing the camera's world orientation
-static void LookAtToQuaternion(float* eye, float* at, float* up, float* q) {
+void LookAtToQuaternion(const float* eye, const float* at, const float* up, float* q) {
     float f[3] = { at[0] - eye[0], at[1] - eye[1], at[2] - eye[2] };
     float len = sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
     if (len > 0.0001f) {
@@ -135,6 +136,22 @@ static void LookAtToQuaternion(float* eye, float* at, float* up, float* q) {
         q[0] = (m02 + m20) / S;
         q[1] = (m12 + m21) / S;
         q[2] = 0.25f * S;
+    }
+}
+
+extern "C" bool VR_IsVREnabled(void) {
+    if (Ship::VRToggle::IsVREnabled()) {
+        return true;
+    }
+    return CVarGetInteger("gVREnabled", 0) == 1;
+}
+
+extern "C" void VR_UpdateBaseTrackingFromLookAt(const float* eye, const float* at, const float* up) {
+    auto window = Ship::Context::GetInstance()->GetWindow();
+    if (window != nullptr) {
+        float q[4];
+        LookAtToQuaternion(eye, at, up, q);
+        window->SetVRBaseTrackingSpace(eye, q);
     }
 }
 

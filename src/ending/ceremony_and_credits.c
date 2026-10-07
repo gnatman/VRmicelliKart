@@ -1564,6 +1564,11 @@ void play_cutscene(CinematicCamera* camera) {
  * Used at the beginning of award ceremony and throughout credits.
  */
 void ceremony_transition_sliding_borders(void) {
+    if (VR_IsVREnabled()) {
+        adjust_f32_value_transition(&gSizeSlidingBorders, gOrderedSizeSlidingBorders, D_802856BC / D_802856B4);
+        return;
+    }
+
     f32 uly;
     f32 lry;
 

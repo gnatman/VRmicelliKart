@@ -460,6 +460,9 @@ void func_80057DD0(void) {
 }
 
 void func_80057FC4(ScreenContext* ctx, u32 arg0) {
+    if (VR_IsVREnabled()) {
+        return;
+    }
     UNUSED Gfx* temp_v1;
 
     if ((gHUDDisable != 0)) {

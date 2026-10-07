@@ -20,6 +20,7 @@ public:
     Sky();
     virtual void Draw(ScreenContext* screen);
     virtual void DrawFloor(ScreenContext* screen);
+    void DrawVRSky(ScreenContext* screen);
     Sky* GetSky();
     void SetColours(Vtx* skybox);
     void InitActors(ScreenContext* screen);
@@ -31,6 +32,9 @@ private:
     static Vtx mSkyboxScreenThree[8];
     static Vtx mSkyboxScreenFour[8];
 
+    static Vtx mVRSkyVtx[17];
+    static Vtx mVRFloorVtx[17];
+
     std::vector<std::unique_ptr<SkyActor>> mSkyActors;
 };
 #endif // __cplusplus
@@ -39,5 +43,6 @@ private:
 EXTERN_C void InitSkyActors(ScreenContext* screen);
 EXTERN_C void TickSkyActors();
 EXTERN_C void DrawSkyActors(ScreenContext* screen, s32 arg0);
+EXTERN_C void CM_RaceDrawVRSky(ScreenContext* screen);
 
 #endif // SKY_H
