@@ -1,6 +1,7 @@
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include "SkyStar.h"
+#include <cmath>
 #include <vector>
 #include "engine/tracks/Track.h"
 #include "engine/World.h"
@@ -15,6 +16,7 @@ extern "C" {
 #include "code_8006E9C0.h"
 #include "assets/models/common_data.h"
 #include "assets/textures/common_data.h"
+#include "math_util.h"
 #include "math_util_2.h"
 #include "render_objects.h"
 }
@@ -163,3 +165,45 @@ bool SkyStar::star_func_80073B78(s32 arg0, s32 arg3, s32 arg4, s32 arg5, s32 arg
 
     return phi_t0;
 }
+
+void SkyStar::DrawVR(ScreenContext* screen) {
+    Camera* camera = screen->camera;
+    if (camera == nullptr || mTexture == nullptr || mVtx == nullptr) {
+        return;
+    }
+
+    float yawAngle = -(float)mRotY * (2.0f * 3.14159265358979323846f / 65536.0f);
+    float pitchDeg = 5.0f + (float)mY * 0.35f;
+    float pitchRad = pitchDeg * (3.14159265358979323846f / 180.0f);
+
+    float R_star = 7400.0f;
+    float R_horiz = R_star * cosf(pitchRad);
+
+    Vec3f relPos;
+    relPos[0] = R_horiz * sinf(yawAngle);
+    relPos[1] = R_star * sinf(pitchRad);
+    relPos[2] = R_horiz * cosf(yawAngle);
+
+    Vec3f worldPos;
+    worldPos[0] = camera->pos[0] + relPos[0];
+    worldPos[1] = camera->pos[1] + relPos[1];
+    worldPos[2] = camera->pos[2] + relPos[2];
+
+    Vec3s rot;
+    rot[0] = (s16)(-pitchDeg * (65536.0f / 360.0f));
+    rot[1] = (s16)(-(s32)mRotY + 32768);
+    rot[2] = 0;
+
+    Mat4 mtx;
+    mtxf_pos_rotation_xyz(mtx, worldPos, rot);
+    mtxf_scale(mtx, mScale * 35.0f);
+
+    if (render_set_position(mtx, 0) != 0) {
+        FrameInterpolation_RecordOpenChild("render_stars_vr", TAG_CLOUDS((_idx << 4) | (screen - gScreenContexts)));
+        func_80044DA0((u8*)mTexture, mTextureWidth, mTextureHeight);
+        func_8004B138(0xFF, 0xFF, 0xFF, mPrimAlpha);
+        gSPVertex(gDisplayListHead++, (uintptr_t)mVtx, 4, 0);
+        gSPDisplayList(gDisplayListHead++, (Gfx*)common_rectangle_display);
+        FrameInterpolation_RecordCloseChild();
+    }
+}

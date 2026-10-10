@@ -28,6 +28,7 @@ public:
     }
 
     virtual void Draw(ScreenContext* ctx, s32 arg0) override;
+    virtual void DrawVR(ScreenContext* ctx) override;
     virtual void Tick() override;
 private:
     static size_t _count;

@@ -684,6 +684,24 @@ void PortMenu::AddVR() {
             .DefaultValue(true)
             .Tooltip("Render dynamic multi-stage sparks on the tires when powersliding/drifting."));
 
+    AddWidget(path, "Ghost Transparency Effect", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRGhostTransparency")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(CheckboxOptions()
+            .DefaultValue(true)
+            .Tooltip("Applies authentic semi-transparency to the 3D cockpit when the Boo ghost item or invisibility effect is active."));
+
+    AddWidget(path, "Test Ghost Transparency", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRTestGhostTransparency")
+        .PreFunc([](WidgetInfo& info) {
+            info.isHidden = (CVarGetInteger("gVRCameraMode", 0) != 1 || CVarGetInteger("gVRDrawCockpit", 1) != 1);
+        })
+        .Options(CheckboxOptions()
+            .DefaultValue(false)
+            .Tooltip("Forces the ghost transparency effect on the 3D cockpit for testing and alignment without needing a Boo item."));
+
     AddWidget(path, "Front Tires Distance: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRTireZ")
         .PreFunc([](WidgetInfo& info) {

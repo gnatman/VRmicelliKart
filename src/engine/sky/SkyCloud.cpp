@@ -1,6 +1,7 @@
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include "SkyCloud.h"
+#include <cmath>
 #include <vector>
 #include "engine/tracks/Track.h"
 #include "engine/World.h"
@@ -14,6 +15,7 @@ extern "C" {
 #include "code_80057C60.h"
 #include "code_8006E9C0.h"
 #include "assets/models/common_data.h"
+#include "math_util.h"
 #include "math_util_2.h"
 #include "render_objects.h"
 }
@@ -111,4 +113,53 @@ void SkyCloud::Draw(ScreenContext* screen, s32 arg0) { // render_clouds
     }
     mOldX = mX;
     mOldY = posY;
+}
+
+void SkyCloud::DrawVR(ScreenContext* screen) {
+    Camera* camera = screen->camera;
+    if (camera == nullptr || mTexture == nullptr || mVtx == nullptr) {
+        return;
+    }
+
+    // Direction angle around horizon in radians:
+    // In MK64 heading angle is negated relative to rot[1]
+    float yawAngle = -(float)mRotY * (2.0f * 3.14159265358979323846f / 65536.0f);
+
+    // Elevation angle above horizon in radians (mY typically ranges from -10 to +80)
+    float pitchDeg = 8.0f + (float)mY * 0.28f;
+    float pitchRad = pitchDeg * (3.14159265358979323846f / 180.0f);
+
+    float R_cloud = 7400.0f;
+    float R_horiz = R_cloud * cosf(pitchRad);
+
+    Vec3f relPos;
+    relPos[0] = R_horiz * sinf(yawAngle);
+    relPos[1] = R_cloud * sinf(pitchRad);
+    relPos[2] = R_horiz * cosf(yawAngle);
+
+    Vec3f worldPos;
+    worldPos[0] = camera->pos[0] + relPos[0];
+    worldPos[1] = camera->pos[1] + relPos[1];
+    worldPos[2] = camera->pos[2] + relPos[2];
+
+    // Orientation: billboard facing back towards camera
+    Vec3s rot;
+    rot[0] = (s16)(-pitchDeg * (65536.0f / 360.0f));
+    rot[1] = (s16)(-(s32)mRotY + 32768);
+    rot[2] = 0;
+
+    Mat4 mtx;
+    mtxf_pos_rotation_xyz(mtx, worldPos, rot);
+    mtxf_scale(mtx, mScale * 38.0f);
+
+    if (render_set_position(mtx, 0) != 0) {
+        FrameInterpolation_RecordOpenChild("render_clouds_vr", TAG_CLOUDS((_idx << 4) | (screen - gScreenContexts)));
+        if (D_8018D228 != mCloudVariant) {
+            D_8018D228 = mCloudVariant;
+            func_80044DA0(mTexture, mTextureWidth, mTextureHeight);
+        }
+        gSPVertex(gDisplayListHead++, (uintptr_t)mVtx, 4, 0);
+        gSPDisplayList(gDisplayListHead++, (Gfx*)common_rectangle_display);
+        FrameInterpolation_RecordCloseChild();
+    }
 }

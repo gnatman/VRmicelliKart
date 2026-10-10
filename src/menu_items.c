@@ -6358,6 +6358,28 @@ static void draw_version(void) {
     print_text1_right(column, 0xEA, SPAGHETTI_VERSION, 0, 0.5f, 0.5f);
 }
 
+static bool sResultsBgDrawnThisFrame = false;
+
+static bool is_results_menu_item(s32 type) {
+    switch (type) {
+        case MENU_ITEM_TYPE_0AA:
+        case MENU_ITEM_TYPE_0AB:
+        case MENU_ITEM_TYPE_0AC:
+        case MENU_ITEM_TYPE_0AF:
+        case MENU_ITEM_TYPE_0B0:
+        case MENU_ITEM_TYPE_0B1:
+        case MENU_ITEM_TYPE_0B2:
+        case MENU_ITEM_TYPE_0B3:
+        case MENU_ITEM_TYPE_0B4:
+        case MENU_ITEM_TYPE_0B9:
+        case MENU_ITEM_TYPE_0BA:
+        case MENU_ITEM_END_COURSE_OPTION:
+            return true;
+        default:
+            return false;
+    }
+}
+
 #ifdef NON_MATCHING
 // https://decomp.me/scratch/MatRp
 // Biggest diff left is in the case 0x12 though 0x19 handling. Not really sure what's going on there
@@ -6386,6 +6408,12 @@ void render_menus(MenuItem* arg0) {
 
     if ((s8) arg0->visible) {
         gDPPipeSync(gDisplayListHead++);
+        if (is_results_menu_item(arg0->type)) {
+            if (!sResultsBgDrawnThisFrame) {
+                sResultsBgDrawnThisFrame = true;
+                gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 140);
+            }
+        }
         switch (arg0->type) {
             case MENU_ITEM_UI_HARBOUR_MASTERS:
                 HM_DrawIntro();
@@ -8520,7 +8548,9 @@ void render_menu_item_end_course_option(MenuItem* arg0) {
             var_s1 = 0x0000008C;
             var_s2 = 0x000000FF;
         }
-        gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, var_s1);
+        if (!sResultsBgDrawnThisFrame) {
+            gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, var_s1);
+        }
         gDPSetPrimColor(gDisplayListHead++, 0, 0, 0x00, 0x00, 0x00, var_s2);
         set_text_color(TEXT_YELLOW);
         print_text1_center_mode_2(0x000000A0, 0x00000050, CM_GetProps()->Name, 0, 1.0f, 1.0f);
@@ -8678,14 +8708,18 @@ void func_800A6154(MenuItem* arg0) {
     s32 var_s1;
 
     if (arg0->state == 0) {
-        gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, arg0->param1);
+        if (!sResultsBgDrawnThisFrame) {
+            gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 140);
+        }
         set_text_color(3);
         gDPSetPrimColor(gDisplayListHead++, 0, 0, 0x00, 0x00, 0x00, (arg0->param1 * 0xFF) / 100);
         for (var_s1 = 0, var_s0 = 0x96; var_s0 < 0xBE; var_s1++, var_s0 += 0x14) {
             print_text_mode_2(0x0000008C, var_s0, gTextPauseButton[(var_s1 * 3) + 1], 0, 1.0f, 1.0f);
         }
     } else {
-        gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 0x00000064);
+        if (!sResultsBgDrawnThisFrame) {
+            gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 140);
+        }
         for (var_s1 = 0, var_s0 = 0x96; var_s1 < 2; var_s1++, var_s0 += 0x14) {
             text_rainbow_effect(arg0->state - 0xB, var_s1, TEXT_YELLOW);
             print_text_mode_1(0x0000008C, var_s0, gTextPauseButton[(var_s1 * 3) + 1], 0, 1.0f, 1.0f);
@@ -8710,12 +8744,16 @@ void func_800A638C(MenuItem* arg0) {
     UNUSED s8** var_s2;
 
     if (arg0->state == 0) {
-        gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, arg0->param1);
+        if (!sResultsBgDrawnThisFrame) {
+            gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 140);
+        }
         set_text_color(TEXT_BLUE_GREEN_RED_CYCLE_2);
         gDPSetPrimColor(gDisplayListHead++, 0, 0, 0x00, 0x00, 0x00, (arg0->param1 * 0xFF) / 100);
         print_text1_center_mode_2(0x000000A0, arg0->row + 0x1E, D_800E7778[gModeSelection / 3], 0, 1.0f, 1.0f);
     } else {
-        gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 0x00000064);
+        if (!sResultsBgDrawnThisFrame) {
+            gDisplayListHead = draw_box_wide(gDisplayListHead, 0, 0, 0x0000013F, 0x000000EF, 0, 0, 0, 140);
+        }
         set_text_color(TEXT_BLUE_GREEN_RED_CYCLE_2);
         print_text1_center_mode_1(0x000000A0, arg0->row + 0x1E, D_800E7778[gModeSelection / 3], 0, 1.0f, 1.0f);
     }
@@ -9516,6 +9554,10 @@ void handle_menus_with_pri_arg(s32 priSpecial) {
             case MENU_ITEM_UI_NO_CONTROLLER:
                 break;
         }
+    }
+
+    if (priSpecial == 0) {
+        sResultsBgDrawnThisFrame = false;
     }
 
     for (j = 0; j < MENU_ITEM_PRIORITY_MAX; j++) {

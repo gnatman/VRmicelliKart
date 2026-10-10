@@ -23,6 +23,7 @@ public:
     virtual ~SkyActor() {};
 
     virtual void Draw(ScreenContext* ctx, s32 arg0) {};
+    virtual void DrawVR(ScreenContext* ctx) {};
     virtual void Tick() {};
     ScreenContext* mScreen;
 protected:

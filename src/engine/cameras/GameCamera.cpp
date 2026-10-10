@@ -149,8 +149,21 @@ extern "C" bool VR_IsVREnabled(void) {
 extern "C" void VR_UpdateBaseTrackingFromLookAt(const float* eye, const float* at, const float* up) {
     auto window = Ship::Context::GetInstance()->GetWindow();
     if (window != nullptr) {
+        // Invert X of the forward and up vectors to match the VR tracking coordinate space convention
+        // (the same inversion applied in GameCamera::SetViewProjection to prevent 180-degree flipped viewing).
+        float conv_at[3] = {
+            eye[0] - (at[0] - eye[0]),
+            eye[1] + (at[1] - eye[1]),
+            eye[2] + (at[2] - eye[2])
+        };
+        float conv_up[3] = {
+            -up[0],
+            up[1],
+            up[2]
+        };
+
         float q[4];
-        LookAtToQuaternion(eye, at, up, q);
+        LookAtToQuaternion(eye, conv_at, conv_up, q);
         window->SetVRBaseTrackingSpace(eye, q);
     }
 }

@@ -274,36 +274,15 @@ void set_viewport(void) {
  * Tells the RDP which of the three framebuffers it shall draw to.
  */
 void select_framebuffer(void) {
-    s32 r = D_800DC5D0;
-    s32 g = D_800DC5D4;
-    s32 b = D_800DC5D8;
-
-    if (VR_IsVREnabled() && CM_GetProps() != NULL) {
-        if (bFog) {
-            r = ((s32)gFogColour.r) >> 3;
-            g = ((s32)gFogColour.g) >> 3;
-            b = ((s32)gFogColour.b) >> 3;
-        } else {
-            SkyboxColours* prop = (SkyboxColours*) &CM_GetProps()->Skybox;
-            r = (((s32)prop->TopRight.r + (s32)prop->BottomRight.r) / 2) >> 3;
-            g = (((s32)prop->TopRight.g + (s32)prop->BottomRight.g) / 2) >> 3;
-            b = (((s32)prop->TopRight.b + (s32)prop->BottomRight.b) / 2) >> 3;
-        }
-    }
-
     gDPPipeSync(gDisplayListHead++);
     gDPSetCycleType(gDisplayListHead++, G_CYC_FILL);
     gDPSetColorImage(gDisplayListHead++, G_IM_FMT_RGBA, G_IM_SIZ_16b, SCREEN_WIDTH,
                      VIRTUAL_TO_PHYSICAL(gPhysicalFramebuffers[sRenderingFramebuffer]));
-    gDPSetFillColor(gDisplayListHead++, GPACK_RGBA5551(r, g, b, 1) << 0x10 |
-                                            GPACK_RGBA5551(r, g, b, 1));
+    gDPSetFillColor(gDisplayListHead++, GPACK_RGBA5551(D_800DC5D0, D_800DC5D4, D_800DC5D8, 1) << 0x10 |
+                                            GPACK_RGBA5551(D_800DC5D0, D_800DC5D4, D_800DC5D8, 1));
     gDPPipeSync(gDisplayListHead++);
     gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-    if (VR_IsVREnabled()) {
-        gDPFillRectangle(gDisplayListHead++, 0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
-    } else {
-        gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 0, OTRGetGameRenderWidth(), SCREEN_HEIGHT);
-    }
+    gDPFillWideRectangle(gDisplayListHead++, OTRGetRectDimensionFromLeftEdge(0), 0, OTRGetGameRenderWidth(), SCREEN_HEIGHT);
     gDPPipeSync(gDisplayListHead++);
     gDPSetCycleType(gDisplayListHead++, G_CYC_1CYCLE);
 }

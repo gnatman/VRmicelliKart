@@ -1,5 +1,4 @@
 #include "WheelManager.h"
-#include "port/TelemetryManager.h"
 #include <imgui.h>
 #include "ship/Context.h"
 #include "ship/config/ConsoleVariable.h"
@@ -417,12 +416,25 @@ void WheelManager::UpdateFFB() {
                         (gRaceState < RACE_CALCULATE_RANKS) &&
                         ((p->type & PLAYER_CINEMATIC_MODE) == 0);
 
+    static f32 lastSpeed = 0.0f;
+    static int sJoltFrames = 0;
+    static int16_t sJoltForce = 0;
+    static bool sWasWallHit = false;
+    static bool sWasItemHit = false;
+
     if (!isRaceActive) { // In menus, pause, title screen, demo/attract mode, or after crossing finish line
         constantForce = softLockForce;
         mLastCenteringForce = 0;
         mLastLateralForce = 0;
         mLastRumbleForce = 0;
         mIsOffroadActive = false;
+
+        // Reset collision/jolt tracking so stale states from prior races or menu transitions never bleed over
+        sJoltFrames = 0;
+        sJoltForce = 0;
+        lastSpeed = 0.0f;
+        sWasWallHit = false;
+        sWasItemHit = false;
 
         // Support test triggers while in menus
         if (mTestJoltFrames > 0) {
@@ -448,10 +460,16 @@ void WheelManager::UpdateFFB() {
         mLastPlayerEffects = p->effects;
         mLastPlayerTriggers = p->triggers;
 
-        static f32 lastSpeed = 0.0f;
-        static int sJoltFrames = 0;
-        static int16_t sJoltForce = 0;
-        static bool sWasHit = false;
+        bool isStaged = (gRaceState < RACE_IN_PROGRESS);
+        if (isStaged) {
+            // Racers are staged at the starting line (countdown / grid lineup / camera pan).
+            // Suppress collisions and lock speed tracking so race start never jolts the wheel.
+            sJoltFrames = 0;
+            sJoltForce = 0;
+            lastSpeed = p->speed;
+            sWasWallHit = false;
+            sWasItemHit = false;
+        }
 
         // 1. Dynamic Auto-Centering (Caster trail based on speed and wheel deflection)
         // Center deadband eliminates limit-cycle flutter / hunting around zero on direct drive wheels
@@ -490,18 +508,15 @@ void WheelManager::UpdateFFB() {
         constantForce += lateralForce;
 
         // 3. Impact & Collision Jolts (Wall hits, shells, bombs, lightning, speed drops)
-        bool wallHit = ((p->unk_046 & 0x20) != 0 || 
+        bool wallHit = !isStaged && (((p->unk_046 & 0x20) != 0 || 
                         p->collision.surfaceDistance[0] < -0.2f || 
-                        p->collision.surfaceDistance[1] < -0.2f) && (p->speed > 0.8f);
+                        p->collision.surfaceDistance[1] < -0.2f) && (p->speed > 0.8f));
         
         // Item hits: green/red/blue shells, explosions, stars, lightning, squish, crash
-        bool itemHit = ((p->effects & (0x400 | HIT_BY_ITEM_EFFECT | 0x01000000 | LIGHTNING_EFFECT | HIT_EFFECT)) != 0) ||
-                       ((p->kartGraphics & CRASH) != 0);
+        bool itemHit = !isStaged && (((p->effects & (0x400 | HIT_BY_ITEM_EFFECT | 0x01000000 | LIGHTNING_EFFECT | HIT_EFFECT)) != 0) ||
+                       ((p->kartGraphics & CRASH) != 0));
 
-        bool speedDropHit = (lastSpeed > 2.0f && (lastSpeed - p->speed) > 1.4f);
-
-        static bool sWasWallHit = false;
-        static bool sWasItemHit = false;
+        bool speedDropHit = !isStaged && (lastSpeed > 2.0f && (lastSpeed - p->speed) > 1.4f);
 
         bool newHit = false;
         int16_t impactPunch = 0;
@@ -524,8 +539,8 @@ void WheelManager::UpdateFFB() {
             impactPunch = (rand() % 2 == 0) ? 26000 : -26000;
         }
 
-        sWasWallHit = wallHit;
-        sWasItemHit = itemHit;
+        sWasWallHit = isStaged ? false : wallHit;
+        sWasItemHit = isStaged ? false : itemHit;
 
         if (newHit && sJoltFrames <= 0) {
             sJoltFrames = 8; // ~130ms punch
@@ -1258,13 +1273,6 @@ void WheelManager::DrawHapticsSettings() {
         ImGui::Unindent();
     }
 
-    // Telemetry gear shift pulse
-    bool itemFeedback = TelemetryManager::GetInstance()->IsItemFeedbackEnabled();
-    if (ImGui::Checkbox("Enable Gear-Shift & Boost Item Feedback (SimHub / ShakeIt)", &itemFeedback)) {
-        TelemetryManager::GetInstance()->SetItemFeedbackEnabled(itemFeedback);
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits gear shift events and acceleration kicks to SimHub motion rigs and bass shakers on item activation.");
-
     ImGui::Separator();
 
     // 4. Interactive Test Triggers
@@ -1284,16 +1292,10 @@ void WheelManager::DrawHapticsSettings() {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "(Active)");
     }
 
-    ImGui::SameLine();
-    if (ImGui::Button("Test Item Boost Feedback")) {
-        TelemetryManager::GetInstance()->TriggerItemFeedback(ITEM_MUSHROOM);
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sends a boost surge kick to SimHub motion telemetry.");
-
     ImGui::Separator();
 
-    // 5. Live Diagnostics & Telemetry
-    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Wheel Telemetry & Diagnostics:");
+    // 5. Live Force Feedback Diagnostics & Monitor
+    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Force Feedback Live Diagnostics / Monitor:");
 
     if (mJoystick && mSteeringAxis != -1) {
         int16_t raw = SDL_JoystickGetAxis(mJoystick, mSteeringAxis);

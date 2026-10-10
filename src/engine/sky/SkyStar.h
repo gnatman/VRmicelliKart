@@ -35,6 +35,7 @@ public:
     }
 
     virtual void Draw(ScreenContext* ctx, s32 arg0) override;
+    virtual void DrawVR(ScreenContext* ctx) override;
     virtual void Tick() override;
     bool star_func_80073B78(s32 arg0, s32 arg3, s32 arg4, s32 arg5, s32 arg6, s32 arg7);
 private:

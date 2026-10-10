@@ -81,6 +81,17 @@ struct TelemetryManager::Impl {
 
     // Previous speed for wall-hit / collision drop
     float lastSpeed = 0.0f;
+
+    // Hop heave & pitch stabilization
+    bool wasHopping = false;
+    int hopHeaveFrames = 0;
+    int hopLandingFrames = 0;
+    float preHopPitchDeg = 0.0f;
+
+    // State for live UI diagnostics
+    bool lastIsAirborne = false;
+    bool lastIsJumping = false;
+    int32_t lastEventFlags = 0;
 };
 
 TelemetryManager* TelemetryManager::mInstance = nullptr;
@@ -129,16 +140,49 @@ void TelemetryManager::Init() {
 void TelemetryManager::LoadSettings() {
     mIsEnabled = CVarGetInteger("gTelemetry.Enabled", 0);
     mEnableItemFeedback = (bool)CVarGetInteger("gTelemetry.EnableItemFeedback", 1);
+    mEventBoostSurge = (bool)CVarGetInteger("gTelemetry.Event.BoostSurge", 1);
+    mEventLandingShock = (bool)CVarGetInteger("gTelemetry.Event.LandingShock", 1);
+    mEventWallHit = (bool)CVarGetInteger("gTelemetry.Event.WallHit", 1);
+    mEventHit = (bool)CVarGetInteger("gTelemetry.Event.Hit", 1);
+    mEventSpinout = (bool)CVarGetInteger("gTelemetry.Event.Spinout", 1);
+    mEventJumping = (bool)CVarGetInteger("gTelemetry.Event.Jumping", 1);
+    mEventHopHeave = (bool)CVarGetInteger("gTelemetry.Event.HopHeave", 1);
+    mEventSuspension = (bool)CVarGetInteger("gTelemetry.Event.Suspension", 1);
+    mEventWheelSlip = (bool)CVarGetInteger("gTelemetry.Event.WheelSlip", 1);
+    mEventSurfaceContact = (bool)CVarGetInteger("gTelemetry.Event.SurfaceContact", 1);
+
     mSpeedFactor = CVarGetFloat("gTelemetry.SpeedFactor", 3.6f);
     mSmoothingAlpha = CVarGetFloat("gTelemetry.SmoothingAlpha", 0.65f);
     mMaxAccel = CVarGetFloat("gTelemetry.MaxAccel", 30.0f);
     mBoostSurgeForce = CVarGetFloat("gTelemetry.BoostSurgeForce", 28.0f);
+    mHopHeaveForce = CVarGetFloat("gTelemetry.HopHeaveForce", 12.0f);
     std::string ip = CVarGetString("gTelemetry.IP", "127.0.0.1");
     int port = CVarGetInteger("gTelemetry.Port", 20777);
 
     pImpl->destAddr.sin_family = AF_INET;
     pImpl->destAddr.sin_port = htons(port);
     inet_pton(AF_INET, ip.c_str(), &pImpl->destAddr.sin_addr);
+}
+
+void TelemetryManager::SaveSettings() {
+    CVarSetInteger("gTelemetry.Enabled", mIsEnabled ? 1 : 0);
+    CVarSetInteger("gTelemetry.EnableItemFeedback", mEnableItemFeedback ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.BoostSurge", mEventBoostSurge ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.LandingShock", mEventLandingShock ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.WallHit", mEventWallHit ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.Hit", mEventHit ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.Spinout", mEventSpinout ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.Jumping", mEventJumping ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.HopHeave", mEventHopHeave ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.Suspension", mEventSuspension ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.WheelSlip", mEventWheelSlip ? 1 : 0);
+    CVarSetInteger("gTelemetry.Event.SurfaceContact", mEventSurfaceContact ? 1 : 0);
+    CVarSetFloat("gTelemetry.SpeedFactor", mSpeedFactor);
+    CVarSetFloat("gTelemetry.SmoothingAlpha", mSmoothingAlpha);
+    CVarSetFloat("gTelemetry.MaxAccel", mMaxAccel);
+    CVarSetFloat("gTelemetry.BoostSurgeForce", mBoostSurgeForce);
+    CVarSetFloat("gTelemetry.HopHeaveForce", mHopHeaveForce);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 
 void TelemetryManager::Update() {
@@ -186,12 +230,19 @@ void TelemetryManager::Update() {
         pImpl->wasAirborne = false;
         pImpl->airborneFrames = 0;
         pImpl->landingShockFrames = 0;
+        pImpl->lastIsAirborne = false;
+        pImpl->lastIsJumping = false;
+        pImpl->lastEventFlags = 0;
         pImpl->boostSurgeFrames = 0;
         pImpl->boostExitFrames = 0;
         pImpl->wasBoosting = false;
         pImpl->wasBoostingSustained = false;
         pImpl->itemPulseFrames = 0;
         pImpl->itemIsBoost = false;
+        pImpl->wasHopping = false;
+        pImpl->hopHeaveFrames = 0;
+        pImpl->hopLandingFrames = 0;
+        pImpl->preHopPitchDeg = 0.0f;
     }
 
     // Detect discontinuities (teleports, resets, Lakitu)
@@ -249,20 +300,44 @@ void TelemetryManager::Update() {
     // Fixed 60Hz physics time step
     const float dt = 1.0f / 60.0f;
 
+    // Detect driver hop (pressing R / drift button sets p->kartHopVelocity > 0.0f)
+    // Note: p->hopFrameCounter is an internal engine idle vibration timer that cycles continuously
+    // even while stationary, so it must NEVER be used for jumping/airborne detection.
+    bool isHopping = (p->kartHopVelocity > 0.0f);
+
+    // Track hop state transitions
+    if (isHopping && !pImpl->wasHopping) {
+        // Takeoff: capture pre-hop pitch and initialize heave impulse
+        pImpl->preHopPitchDeg = pImpl->lastPitchDeg;
+        if (mEventHopHeave) {
+            pImpl->hopHeaveFrames = 7; // ~116ms upward pop and apex taper
+        }
+        pImpl->wasHopping = true;
+    } else if (!isHopping && pImpl->wasHopping) {
+        // Touchdown: trigger gentle landing settle
+        pImpl->wasHopping = false;
+        if (mEventHopHeave) {
+            pImpl->hopLandingFrames = 2; // ~33ms small compression settle
+        }
+    }
+
     // 1. Orientation (Yaw, Pitch, Roll in Degrees)
     // Note: MK64 p->rotation[0] & p->rotation[2] are NEVER updated from 0.
     // Real physical pitch angle comes from front vs rear tyre contact heights:
     // (p->unk_1F8 - p->unk_1FC) / wheelbase.
-    // When airborne (p->effects & 8), MK64's internal sprite-renderer multiplies p->slopeAccel
+    // When hopping or airborne (p->effects & 8), MK64's internal sprite-renderer multiplies p->slopeAccel
     // by 10 (temp_v0 *= 10), causing pitch to spike to -60° ~ -78° and snap back on landing,
-    // which trips SimHub's crash detector ("instant angular changes > 20°").
-    // We compute the true physical pitch without the 10x visual exaggeration:
+    // which motion platforms tilt backwards (feeling like climbing a mountain or surging forward).
+    // During a hop, we freeze pitch to preHopPitchDeg for clean vertical heave without pitch tilt.
     const float binToDeg = 360.0f / 65536.0f;
     float currentPitchDeg = 0.0f;
     float currentRollDeg  = (float)p->unk_206 * binToDeg;
     float currentYawDeg   = (float)p->rotation[1] * binToDeg;
 
-    if ((p->effects & 8) != 8) {
+    if (isHopping || pImpl->hopHeaveFrames > 0) {
+        // Freeze pitch to pre-hop angle so hopping never causes pitch-back / mountain-climbing tilt
+        currentPitchDeg = pImpl->preHopPitchDeg;
+    } else if ((p->effects & 8) != 8) {
         currentPitchDeg = (float)p->slopeAccel * binToDeg;
     } else {
         // Calculate true physical pitch during air/jump from velocity trajectory without MK64's 10x visual exaggeration
@@ -307,22 +382,46 @@ void TelemetryManager::Update() {
     float localVelY = p->velocity[0] * p->orientationMatrix[1][0] + p->velocity[1] * p->orientationMatrix[1][1] + p->velocity[2] * p->orientationMatrix[1][2];
     float localVelZ = p->velocity[0] * p->orientationMatrix[2][0] + p->velocity[1] * p->orientationMatrix[2][1] + p->velocity[2] * p->orientationMatrix[2][2];
 
+    // In MK64, kartHopVelocity is an independent displacement added directly to posY rather than velocity[1].
+    // Include upward hop velocity along the kart's up-vector so LocalVelocityUpMps reflects the hop.
+    if (p->kartHopVelocity > 0.0f) {
+        localVelY += p->kartHopVelocity * p->orientationMatrix[1][1];
+    }
+
     float velScale = mSpeedFactor / 3.6f;
     float lvX = localVelX * velScale;
     float lvY = localVelY * velScale;
     float lvZ = localVelZ * velScale;
 
     // 4. Airborne & Landing Shock detection
-    // In MK64 physics, (p->effects & 8) == 8 is the canonical engine flag for being in the air,
-    // and p->hopFrameCounter > 0 tracks driver hops.
-    bool isAirborne = ((p->effects & 8) == 8) || (p->hopFrameCounter > 0);
+    bool isAirborne = false;
 
-    // Stationary Gate: when parked on the ground, suppress airborne states and residual velocity jitter
-    if (p->speed < 0.08f && ((p->effects & 8) == 0)) {
-        isAirborne = false;
-        lvX = 0.0f;
-        lvY = 0.0f;
-        lvZ = 0.0f;
+    if (p->speed < 0.15f) {
+        // At near-zero speed (stationary or parked):
+        // The kart is resting on the ground unless actively hopping, in free-fall off a ledge,
+        // or being picked up by Lakitu.
+        if (isHopping) {
+            isAirborne = true;
+        } else if (p->velocity[1] < -0.4f && p->collision.surfaceDistance[2] > 1.0f) {
+            isAirborne = true;
+        } else if ((p->lakituProps & 0x02) != 0) {
+            isAirborne = true;
+        } else {
+            isAirborne = false;
+        }
+
+        // Clamp stationary velocities and heave jitter
+        if (!isAirborne) {
+            lvX = 0.0f;
+            lvY = 0.0f;
+            lvZ = 0.0f;
+        }
+    } else {
+        // In motion: airborne if driver is hopping or if wheels have genuine clearance from the track.
+        // We require either hopping, clearance for > 1 frame (p->unk_0C2 >= 2), or noticeable surface distance
+        // to filter out 1-frame terrain polygon seam ticks on flat surfaces.
+        isAirborne = isHopping || 
+                     (((p->effects & 8) != 0) && (p->unk_0C2 >= 2 || p->collision.surfaceDistance[2] > 0.3f || p->velocity[1] < -0.3f));
     }
 
     packet.LocalVelocityLateralMps = lvX;
@@ -333,10 +432,12 @@ void TelemetryManager::Update() {
         pImpl->airborneFrames++;
         pImpl->wasAirborne = true;
     } else {
-        if (pImpl->wasAirborne && (pImpl->airborneFrames >= 4 || p->unk_0C2 >= 4 || (p->kartGraphics & POOMP))) {
-            // Wheels just touched ground with significant downward speed -> landing impact pulse
-            if (p->speed > 0.5f || p->velocity[1] < -0.2f || (p->kartGraphics & POOMP)) {
-                pImpl->landingShockFrames = 4; // ~66ms heavy compression shock
+        // Trigger heavy landing shock only for major jumps/falls (ramps, cliffs, or large drops)
+        bool isMajorJump = (pImpl->airborneFrames >= 15 || p->unk_0C2 >= 15 || (p->kartGraphics & POOMP) || p->velocity[1] < -0.8f);
+        if (mEventLandingShock && pImpl->wasAirborne && isMajorJump) {
+            // Wheels just touched ground with significant downward speed -> heavy landing impact pulse
+            if (p->speed > 0.5f || p->velocity[1] < -0.4f || (p->kartGraphics & POOMP)) {
+                pImpl->landingShockFrames = 4; // ~66ms heavy compression shock (+22.0 m/s^2)
             }
         }
         pImpl->airborneFrames = 0;
@@ -359,24 +460,29 @@ void TelemetryManager::Update() {
     pImpl->wasBoostingSustained = isBoosting;
 
     float boostSurge = 0.0f;
-    if (pImpl->boostSurgeFrames > 0) {
-        // First 15 frames (~250ms): 100% full kick
-        // Frames 16-45: smoothly ramp down from 100% to 60% sustained level
-        if (pImpl->boostSurgeFrames > 30) {
-            boostSurge = mBoostSurgeForce;
-        } else {
-            float t = (float)pImpl->boostSurgeFrames / 30.0f; // 1.0 down to 0.0
-            boostSurge = mBoostSurgeForce * (0.6f + 0.4f * t);
+    if (mEventBoostSurge) {
+        if (pImpl->boostSurgeFrames > 0) {
+            // First 15 frames (~250ms): 100% full kick
+            // Frames 16-45: smoothly ramp down from 100% to 60% sustained level
+            if (pImpl->boostSurgeFrames > 30) {
+                boostSurge = mBoostSurgeForce;
+            } else {
+                float t = (float)pImpl->boostSurgeFrames / 30.0f; // 1.0 down to 0.0
+                boostSurge = mBoostSurgeForce * (0.6f + 0.4f * t);
+            }
+            pImpl->boostSurgeFrames--;
+        } else if (isBoosting) {
+            // Sustained boost (e.g. Star or prolonged mushroom timer)
+            boostSurge = mBoostSurgeForce * 0.6f;
+        } else if (pImpl->boostExitFrames > 0) {
+            // Smoothly exit after boost ends
+            float t = (float)pImpl->boostExitFrames / 12.0f;
+            boostSurge = mBoostSurgeForce * 0.6f * t;
+            pImpl->boostExitFrames--;
         }
-        pImpl->boostSurgeFrames--;
-    } else if (isBoosting) {
-        // Sustained boost (e.g. Star or prolonged mushroom timer)
-        boostSurge = mBoostSurgeForce * 0.6f;
-    } else if (pImpl->boostExitFrames > 0) {
-        // Smoothly exit after boost ends
-        float t = (float)pImpl->boostExitFrames / 12.0f;
-        boostSurge = mBoostSurgeForce * 0.6f * t;
-        pImpl->boostExitFrames--;
+    } else {
+        if (pImpl->boostSurgeFrames > 0) pImpl->boostSurgeFrames--;
+        if (pImpl->boostExitFrames > 0) pImpl->boostExitFrames--;
     }
 
     if (discontinuity || !pImpl->accelInitialized) {
@@ -406,14 +512,16 @@ void TelemetryManager::Update() {
             pImpl->landingShockFrames = 0;
         } else {
             // If exiting boost or boosting, damp negative rawSurge so deceleration from boost speed doesn't jerk the rig forward
-            if ((isBoosting || pImpl->boostExitFrames > 0) && rawSurge < 0.0f) {
+            if (mEventBoostSurge && (isBoosting || pImpl->boostExitFrames > 0) && rawSurge < 0.0f) {
                 rawSurge *= 0.2f;
             }
 
             // Apply landing compression shock to vertical heave
-            if (pImpl->landingShockFrames > 0) {
+            if (mEventLandingShock && pImpl->landingShockFrames > 0) {
                 rawHeave += 22.0f; // Downward jolt on touchdown
                 pImpl->landingShockFrames--;
+            } else if (!mEventLandingShock) {
+                pImpl->landingShockFrames = 0;
             }
 
             // Exponential Moving Average low-pass filter
@@ -423,11 +531,36 @@ void TelemetryManager::Update() {
             pImpl->smoothedHeave = a * rawHeave + (1.0f - a) * pImpl->smoothedHeave;
         }
 
+        // Hop vertical heave impulse calculation
+        float hopHeavePulse = 0.0f;
+        if (mEventHopHeave) {
+            if (pImpl->hopHeaveFrames > 0) {
+                // Rising phase of the hop (quick, clean vertical pop)
+                // Frames 7..5 (~50ms): full force pop (mHopHeaveForce, default 12 m/s^2)
+                // Frames 4..1 (~66ms): tapers smoothly down to 0 at the apex
+                if (pImpl->hopHeaveFrames >= 5) {
+                    hopHeavePulse = mHopHeaveForce;
+                } else {
+                    float t = (float)pImpl->hopHeaveFrames / 5.0f;
+                    hopHeavePulse = mHopHeaveForce * t;
+                }
+                pImpl->hopHeaveFrames--;
+            } else if (pImpl->hopLandingFrames > 0) {
+                // Touchdown settle: small compression bump (~35% of hop force)
+                hopHeavePulse = mHopHeaveForce * 0.35f;
+                pImpl->hopLandingFrames--;
+            }
+        } else {
+            if (pImpl->hopHeaveFrames > 0) pImpl->hopHeaveFrames--;
+            if (pImpl->hopLandingFrames > 0) pImpl->hopLandingFrames--;
+        }
+
         float maxA = mMaxAccel;
-        float maxSurge = std::max(mMaxAccel, mBoostSurgeForce);
+        float maxSurge = mEventBoostSurge ? std::max(mMaxAccel, mBoostSurgeForce) : mMaxAccel;
+        float maxHeave = mEventHopHeave ? std::max(mMaxAccel, mHopHeaveForce) : mMaxAccel;
         packet.LocalSurgeMs2 = std::clamp(pImpl->smoothedSurge + boostSurge, -maxA, maxSurge);
         packet.LocalSwayMs2  = std::clamp(pImpl->smoothedSway,  -maxA, maxA);
-        packet.LocalHeaveMs2 = std::clamp(pImpl->smoothedHeave, -maxA, maxA);
+        packet.LocalHeaveMs2 = std::clamp(pImpl->smoothedHeave + hopHeavePulse, -maxA, maxHeave);
 
         pImpl->prevLocalVel[0] = lvX;
         pImpl->prevLocalVel[1] = lvY;
@@ -467,14 +600,17 @@ void TelemetryManager::Update() {
     // 9. Gear & Engine RPM
     // Simulated gear shift pulse only for standard item release (shells/bananas) if enabled;
     // boosting remains in gear 1 without artificial shift or RPM spikes.
-    if (pImpl->itemPulseFrames > 0 && !pImpl->itemIsBoost) {
+    if (mEnableItemFeedback && pImpl->itemPulseFrames > 0 && !pImpl->itemIsBoost) {
         pImpl->itemPulseFrames--;
         strncpy(packet.Gear, "2", sizeof(packet.Gear)); // Crisp gear pulse on standard item use
     } else if (p->kartProps & MOVE_BACKWARDS) {
+        if (pImpl->itemPulseFrames > 0) pImpl->itemPulseFrames--;
         strncpy(packet.Gear, "R", sizeof(packet.Gear));
     } else if (p->speed < 0.08f) {
+        if (pImpl->itemPulseFrames > 0) pImpl->itemPulseFrames--;
         strncpy(packet.Gear, "N", sizeof(packet.Gear));
     } else {
+        if (pImpl->itemPulseFrames > 0) pImpl->itemPulseFrames--;
         strncpy(packet.Gear, "1", sizeof(packet.Gear));
     }
 
@@ -488,17 +624,24 @@ void TelemetryManager::Update() {
                      ((p->triggers & (START_SPINOUT_TRIGGER | SPINOUT_TRIGGER | DRIVING_SPINOUT_TRIGGER | HIT_BANANA_TRIGGER)) != 0);
 
     float baseSlip = 0.0f;
-    if (isSpinout) {
-        baseSlip = 1.0f;
-    } else if (p->driftState > 0 || (p->effects & DRIFTING_EFFECT)) {
-        baseSlip = (p->driftState >= 2) ? 0.70f : 0.40f;
-    } else if (p->speed > 1.0f && std::abs((float)p->unk_0C0) > 2000.0f) {
-        baseSlip = std::clamp(std::abs((float)p->unk_0C0) / 10000.0f, 0.0f, 0.5f);
+    if (mEventWheelSlip) {
+        if (isSpinout && mEventSpinout) {
+            baseSlip = 1.0f;
+        } else if (p->driftState > 0 || (p->effects & DRIFTING_EFFECT)) {
+            baseSlip = (p->driftState >= 2) ? 0.70f : 0.40f;
+        } else if (p->speed > 1.0f && std::abs((float)p->unk_0C0) > 2000.0f) {
+            baseSlip = std::clamp(std::abs((float)p->unk_0C0) / 10000.0f, 0.0f, 0.5f);
+        }
+        packet.WheelSlipFrontLeft  = baseSlip * 0.5f;
+        packet.WheelSlipFrontRight = baseSlip * 0.5f;
+        packet.WheelSlipRearLeft   = baseSlip;
+        packet.WheelSlipRearRight  = baseSlip;
+    } else {
+        packet.WheelSlipFrontLeft  = 0.0f;
+        packet.WheelSlipFrontRight = 0.0f;
+        packet.WheelSlipRearLeft   = 0.0f;
+        packet.WheelSlipRearRight  = 0.0f;
     }
-    packet.WheelSlipFrontLeft  = baseSlip * 0.5f;
-    packet.WheelSlipFrontRight = baseSlip * 0.5f;
-    packet.WheelSlipRearLeft   = baseSlip;
-    packet.WheelSlipRearRight  = baseSlip;
 
     // 11. Per-Wheel Suspension Velocity & Tyre Contact Surface
     auto mapSurface = [](uint8_t st) -> uint16_t {
@@ -544,106 +687,232 @@ void TelemetryManager::Update() {
     }
     pImpl->suspInitialized = true;
 
-    packet.SuspensionVelocityFrontLeftMps  = suspVel[FRONT_LEFT];
-    packet.SuspensionVelocityFrontRightMps = suspVel[FRONT_RIGHT];
-    packet.SuspensionVelocityRearLeftMps   = suspVel[BACK_LEFT];
-    packet.SuspensionVelocityRearRightMps  = suspVel[BACK_RIGHT];
+    if (mEventSuspension) {
+        packet.SuspensionVelocityFrontLeftMps  = suspVel[FRONT_LEFT];
+        packet.SuspensionVelocityFrontRightMps = suspVel[FRONT_RIGHT];
+        packet.SuspensionVelocityRearLeftMps   = suspVel[BACK_LEFT];
+        packet.SuspensionVelocityRearRightMps  = suspVel[BACK_RIGHT];
+    } else {
+        packet.SuspensionVelocityFrontLeftMps  = 0.0f;
+        packet.SuspensionVelocityFrontRightMps = 0.0f;
+        packet.SuspensionVelocityRearLeftMps   = 0.0f;
+        packet.SuspensionVelocityRearRightMps  = 0.0f;
+    }
 
     if (isAirborne) {
         packet.TyreContactSurfaceFrontLeft  = SIMHUB_SURFACE_NONE;
         packet.TyreContactSurfaceFrontRight = SIMHUB_SURFACE_NONE;
         packet.TyreContactSurfaceRearLeft   = SIMHUB_SURFACE_NONE;
         packet.TyreContactSurfaceRearRight  = SIMHUB_SURFACE_NONE;
-    } else {
+    } else if (mEventSurfaceContact) {
         packet.TyreContactSurfaceFrontLeft  = mapSurface(p->tyres[FRONT_LEFT].surfaceType);
         packet.TyreContactSurfaceFrontRight = mapSurface(p->tyres[FRONT_RIGHT].surfaceType);
         packet.TyreContactSurfaceRearLeft   = mapSurface(p->tyres[BACK_LEFT].surfaceType);
         packet.TyreContactSurfaceRearRight  = mapSurface(p->tyres[BACK_RIGHT].surfaceType);
+    } else {
+        packet.TyreContactSurfaceFrontLeft  = SIMHUB_SURFACE_PRIMARY;
+        packet.TyreContactSurfaceFrontRight = SIMHUB_SURFACE_PRIMARY;
+        packet.TyreContactSurfaceRearLeft   = SIMHUB_SURFACE_PRIMARY;
+        packet.TyreContactSurfaceRearRight  = SIMHUB_SURFACE_PRIMARY;
     }
 
     // 12. Custom Fields: EventFlags, SurfaceType
     packet.EventFlags = 0;
-    if (p->hopFrameCounter > 0 || isAirborne) packet.EventFlags |= TELEMETRY_EVENT_JUMPING;
-    if (isBoosting) packet.EventFlags |= TELEMETRY_EVENT_BOOSTING;
+    bool isJumping = isAirborne || isHopping;
+    if (mEventJumping && isJumping) {
+        packet.EventFlags |= TELEMETRY_EVENT_JUMPING;
+    }
+    if (mEventBoostSurge && isBoosting) {
+        packet.EventFlags |= TELEMETRY_EVENT_BOOSTING;
+    }
 
     bool isHit = ((p->effects & (0x400 | 0x4000 | 0x01000000 | HIT_BY_ITEM_EFFECT | LIGHTNING_EFFECT)) != 0) ||
                  ((p->kartGraphics & CRASH) != 0);
-    if (isHit) packet.EventFlags |= TELEMETRY_EVENT_HIT;
-    if (isSpinout) packet.EventFlags |= TELEMETRY_EVENT_SPINOUT;
+    if (mEventHit && isHit) {
+        packet.EventFlags |= TELEMETRY_EVENT_HIT;
+    }
 
-    bool wallHit = ((p->unk_046 & 0x20) != 0 || 
+    if (mEventSpinout && isSpinout) {
+        packet.EventFlags |= TELEMETRY_EVENT_SPINOUT;
+    }
+
+    bool isStaged = (gRaceState < RACE_IN_PROGRESS);
+    if (isStaged) {
+        pImpl->lastSpeed = p->speed;
+    }
+    bool wallHit = !isStaged && (((p->unk_046 & 0x20) != 0 || 
                     p->collision.surfaceDistance[0] < -0.2f || 
-                    p->collision.surfaceDistance[1] < -0.2f) && (p->speed > 0.8f);
-    bool speedDropHit = (pImpl->lastSpeed > 2.0f && (pImpl->lastSpeed - p->speed) > 1.4f);
+                    p->collision.surfaceDistance[1] < -0.2f) && (p->speed > 0.8f));
+    bool speedDropHit = !isStaged && (pImpl->lastSpeed > 2.0f && (pImpl->lastSpeed - p->speed) > 1.4f);
     pImpl->lastSpeed = p->speed;
 
-    if (wallHit || speedDropHit) packet.EventFlags |= TELEMETRY_EVENT_WALL_HIT;
-    if (pImpl->landingShockFrames > 0 && p->speed > 0.5f) packet.EventFlags |= TELEMETRY_EVENT_LANDING;
+    if (mEventWallHit && (wallHit || speedDropHit)) {
+        packet.EventFlags |= TELEMETRY_EVENT_WALL_HIT;
+    }
+
+    if (mEventLandingShock && pImpl->landingShockFrames > 0 && p->speed > 0.5f) {
+        packet.EventFlags |= TELEMETRY_EVENT_LANDING;
+    }
 
     packet.SurfaceType = (int16_t)p->surfaceType;
+
+    // Cache state for live UI monitor
+    pImpl->lastIsAirborne = isAirborne;
+    pImpl->lastIsJumping = isJumping;
+    pImpl->lastEventFlags = packet.EventFlags;
 
     sendto(pImpl->socket, (const char*)&packet, sizeof(packet), 0, (sockaddr*)&pImpl->destAddr, sizeof(pImpl->destAddr));
 }
 
 void TelemetryManager::DrawSettings() {
     bool enabled = (bool)CVarGetInteger("gTelemetry.Enabled", 0);
-    if (ImGui::Checkbox("Enable SimHub Telemetry", &enabled)) {
-        CVarSetInteger("gTelemetry.Enabled", enabled);
-        LoadSettings();
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    if (ImGui::Checkbox("Enable SimHub Telemetry (Master)", &enabled)) {
+        SetEnabled(enabled);
     }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master switch to broadcast UDP telemetry packets to SimHub motion rigs, bass shakers, and dashboards.");
 
     if (enabled) {
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Network Configuration:");
+
         char ipBuf[64];
         std::string ip = CVarGetString("gTelemetry.IP", "127.0.0.1");
         strncpy(ipBuf, ip.c_str(), sizeof(ipBuf) - 1);
         ipBuf[sizeof(ipBuf) - 1] = '\0';
-        if (ImGui::InputText("SimHub IP", ipBuf, sizeof(ipBuf))) {
+        if (ImGui::InputText("SimHub Target IP", ipBuf, sizeof(ipBuf))) {
             CVarSetString("gTelemetry.IP", ipBuf);
             LoadSettings();
             Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
 
         int port = CVarGetInteger("gTelemetry.Port", 20777);
-        if (ImGui::InputInt("SimHub Port", &port)) {
+        if (ImGui::InputInt("SimHub Target Port", &port)) {
             CVarSetInteger("gTelemetry.Port", port);
             LoadSettings();
             Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
-        
-        ImGui::TextDisabled("Default Port: 20777");
+        ImGui::TextDisabled("Default Port: 20777 (UDP)");
 
         if (ImGui::InputFloat("Speed Scaling Factor", &mSpeedFactor, 0.1f, 1.0f, "%.2f")) {
-            CVarSetFloat("gTelemetry.SpeedFactor", mSpeedFactor);
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            SaveSettings();
         }
-        ImGui::TextDisabled("MK64 internal speed * this factor = GroundSpeedKmh");
-        ImGui::TextDisabled("Also scales velocity/acceleration to real-world units.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("MK64 internal speed * factor = GroundSpeedKmh (also scales velocities and displacements).");
 
         ImGui::Separator();
-        ImGui::Text("Motion Filtering");
+        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Motion Platform Tuning & Limits:");
 
-        if (ImGui::SliderFloat("Smoothing (Alpha)", &mSmoothingAlpha, 0.05f, 1.0f, "%.2f")) {
-            CVarSetFloat("gTelemetry.SmoothingAlpha", mSmoothingAlpha);
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        if (ImGui::SliderFloat("Smoothing Filter (Alpha)", &mSmoothingAlpha, 0.05f, 1.0f, "%.2f")) {
+            SaveSettings();
         }
-        ImGui::TextDisabled("60 Hz sync allows higher alpha (~0.65) for lower latency.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Exponential moving average alpha (0.05 = heavily damped, 1.0 = raw instantaneous). Default ~0.65.");
 
         if (ImGui::InputFloat("Max Acceleration (m/s^2)", &mMaxAccel, 1.0f, 5.0f, "%.1f")) {
             if (mMaxAccel < 1.0f) mMaxAccel = 1.0f;
-            CVarSetFloat("gTelemetry.MaxAccel", mMaxAccel);
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            SaveSettings();
         }
-        ImGui::TextDisabled("Clamp acceleration to prevent hitting platform limits. ~30 = ~3G.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clamps acceleration outputs to prevent hitting motion platform limits (~30 m/s^2 = ~3G).");
 
-        if (ImGui::SliderFloat("Boost Surge Kick (m/s^2)", &mBoostSurgeForce, 0.0f, 50.0f, "%.1f")) {
-            CVarSetFloat("gTelemetry.BoostSurgeForce", mBoostSurgeForce);
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        if (ImGui::SliderFloat("Boost Surge Kick Force (m/s^2)", &mBoostSurgeForce, 0.0f, 50.0f, "%.1f")) {
+            SaveSettings();
         }
-        ImGui::TextDisabled("Longitudinal acceleration kick injected during boosts (Mushroom, Star, boost pad).");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Magnitude of forward acceleration surge impulse injected during boosts (Mushroom, Star, boost pad, mini-turbo).");
+
+        if (ImGui::SliderFloat("Hop Heave Force (m/s^2)", &mHopHeaveForce, 0.0f, 30.0f, "%.1f")) {
+            SaveSettings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Peak upward acceleration heave impulse injected during a driver hop (R button). Default 12.0 m/s^2.");
 
         ImGui::Separator();
-        ImGui::Text("Live Telemetry Status:");
+        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Individual Telemetry Cues & Events (Enable / Disable):");
+        ImGui::TextDisabled("Toggle specific cues and events to isolate, tune, and test each channel on your motion rig or bass shakers.");
+
+        // 1. Boost Surge
+        if (ImGui::Checkbox("Enable Boost Surge Kick", &mEventBoostSurge)) {
+            SetBoostSurgeEnabled(mEventBoostSurge);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits forward acceleration surge impulse and TELEMETRY_EVENT_BOOSTING flag during mushroom, star, zipper, and mini-turbo boosts.");
+
+        // 2. Landing Shock
+        if (ImGui::Checkbox("Enable Landing Impact Shock", &mEventLandingShock)) {
+            SetLandingShockEnabled(mEventLandingShock);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits downward heave compression shock and TELEMETRY_EVENT_LANDING flag upon touchdown after jumps and hops.");
+
+        // 3. Wall Collisions
+        if (ImGui::Checkbox("Enable Wall Collision Telemetry", &mEventWallHit)) {
+            SetWallHitEnabled(mEventWallHit);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits TELEMETRY_EVENT_WALL_HIT flag on track perimeter and obstacle collisions.");
+
+        // 4. Item Attacks & Crashes
+        if (ImGui::Checkbox("Enable Item Hit & Crash Telemetry", &mEventHit)) {
+            SetHitEnabled(mEventHit);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits TELEMETRY_EVENT_HIT flag when struck by shells, bananas, lightning, or vehicle crash.");
+
+        // 5. Spinouts & Slips
+        if (ImGui::Checkbox("Enable Spinout & Traction Loss Telemetry", &mEventSpinout)) {
+            SetSpinoutEnabled(mEventSpinout);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits TELEMETRY_EVENT_SPINOUT flag and max rear tire slip when spinning out on oil or bananas.");
+
+        // 6. Jumps & Hops
+        if (ImGui::Checkbox("Enable Jump & Hop Telemetry", &mEventJumping)) {
+            SetJumpingEnabled(mEventJumping);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits TELEMETRY_EVENT_JUMPING flag during hops and airborne flight.");
+
+        // 7. Hop Vertical Heave Cue
+        if (ImGui::Checkbox("Enable Hop Vertical Heave Telemetry", &mEventHopHeave)) {
+            SetHopHeaveEnabled(mEventHopHeave);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Injects a clean, quick vertical heave pop and landing settle when performing a hop (R button). Zero pitch or surge kick.");
+
+        // 8. Gear-Shift & Item Activation Pulses
+        if (ImGui::Checkbox("Enable Gear-Shift & Item Activation Pulses (ShakeIt)", &mEnableItemFeedback)) {
+            SetItemFeedbackEnabled(mEnableItemFeedback);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits simulated gear shift pulse (Gear 1 -> 2) on item launch for tactile gear-shift haptics in ShakeIt Bass Shakers.");
+
+        // 9. Suspension Bump Telemetry
+        if (ImGui::Checkbox("Enable Suspension Bump / Road Heave Telemetry", &mEventSuspension)) {
+            SetSuspensionEnabled(mEventSuspension);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits per-wheel vertical suspension velocity. Uncheck if you want a smooth motion platform without road heave chatter.");
+
+        // 10. Wheel Slip Telemetry
+        if (ImGui::Checkbox("Enable Wheel Slip / Drift Telemetry", &mEventWheelSlip)) {
+            SetWheelSlipEnabled(mEventWheelSlip);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits per-wheel slip ratios during cornering, power-slides, and drift mini-turbos for traction loss shakers/actuators.");
+
+        // 11. Tyre Contact Surface Reporting
+        if (ImGui::Checkbox("Enable Tyre Contact Surface Telemetry", &mEventSurfaceContact)) {
+            SetSurfaceContactEnabled(mEventSurfaceContact);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transmits track surface types (rumble strips, grass, gravel, dirt, sand) to trigger SimHub road texture effects.");
+
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Interactive Telemetry Tests:");
+        if (ImGui::Button("Test Boost Surge Kick (Mushroom)")) {
+            TriggerItemFeedback(ITEM_MUSHROOM);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Triggers an onset forward surge acceleration kick in telemetry.");
+
+        ImGui::SameLine();
+        if (ImGui::Button("Test Gear Shift Pulse (Shell)")) {
+            TriggerItemFeedback(ITEM_GREEN_SHELL);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Triggers a momentary gear 2 pulse in telemetry for bass shaker gear-shift effects.");
+
+        ImGui::SameLine();
+        if (ImGui::Button("Test Hop Heave")) {
+            TriggerHopHeave();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Triggers a momentary upward vertical heave pulse in telemetry to test hop actuator response.");
+
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Live Telemetry Status / Monitor:");
         if (gDemoMode != DEMO_MODE_INACTIVE) {
             ImGui::TextDisabled("Status: Inactive (Demo / Attract Mode)");
         } else if (gGamestate == RACING) {
@@ -653,12 +922,22 @@ void TelemetryManager::DrawSettings() {
                 ImGui::TextDisabled("Status: Inactive (Race Finished / Crossed Finish Line)");
             } else {
                 const float binToDeg = 360.0f / 65536.0f;
-                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Status: Active (In Race)");
-                ImGui::Text("Pitch: %.1f deg | Roll: %.1f deg", (float)p->slopeAccel * binToDeg, (float)p->unk_206 * binToDeg);
-                ImGui::Text("Yaw: %.1f deg | Speed: %.1f km/h", (float)p->rotation[1] * binToDeg, p->speed * mSpeedFactor);
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Status: Active (Transmitting at 60 Hz)");
+                ImGui::Text("Pitch: %+.1f deg | Roll: %+.1f deg | Yaw: %+.1f deg", (float)p->slopeAccel * binToDeg, (float)p->unk_206 * binToDeg, (float)p->rotation[1] * binToDeg);
                 ImGui::Text("Surge: %+.1f m/s^2 | Sway: %+.1f m/s^2 | Heave: %+.1f m/s^2", pImpl->smoothedSurge, pImpl->smoothedSway, pImpl->smoothedHeave);
-                ImGui::Text("Airborne: %s | Surface: %d | Boosting: %s", ((p->effects & 8) == 8) ? "YES" : "No", (int)p->surfaceType, (p->boostTimer > 0) ? "YES" : "No");
-                ImGui::Text("Effects: 0x%08X", p->effects);
+                ImGui::Text("Airborne: %s | Boosting: %s | Surface: %d", pImpl->lastIsAirborne ? "YES" : "No", (p->boostTimer > 0) ? "YES" : "No", (int)p->surfaceType);
+
+                if (ImGui::TreeNode("Active Event Flags Breakdown")) {
+                    ImGui::BulletText("Boosting Surge: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_BOOSTING) ? "ACTIVE" : "Idle", mEventBoostSurge ? "Enabled" : "Disabled");
+                    ImGui::BulletText("Landing Shock: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_LANDING) ? "ACTIVE" : "Idle", mEventLandingShock ? "Enabled" : "Disabled");
+                    ImGui::BulletText("Hop Heave Pulse: %s (%s, %.1f m/s^2)", (pImpl->hopHeaveFrames > 0 || pImpl->hopLandingFrames > 0) ? "ACTIVE" : "Idle", mEventHopHeave ? "Enabled" : "Disabled", mHopHeaveForce);
+                    ImGui::BulletText("Wall Collision: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_WALL_HIT) ? "ACTIVE" : "Idle", mEventWallHit ? "Enabled" : "Disabled");
+                    ImGui::BulletText("Item Hit / Crash: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_HIT) ? "ACTIVE" : "Idle", mEventHit ? "Enabled" : "Disabled");
+                    ImGui::BulletText("Spinout: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_SPINOUT) ? "ACTIVE" : "Idle", mEventSpinout ? "Enabled" : "Disabled");
+                    ImGui::BulletText("Jumping: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_JUMPING) ? "ACTIVE" : "Idle", mEventJumping ? "Enabled" : "Disabled");
+                    ImGui::BulletText("Item Pulse: %s (%s)", (pImpl->itemPulseFrames > 0) ? "ACTIVE" : "Idle", mEnableItemFeedback ? "Enabled" : "Disabled");
+                    ImGui::TreePop();
+                }
             }
         } else {
             ImGui::TextDisabled("Status: Inactive (Not in active race)");
@@ -666,10 +945,89 @@ void TelemetryManager::DrawSettings() {
     }
 }
 
+void TelemetryManager::SetEnabled(bool enabled) {
+    mIsEnabled = enabled;
+    CVarSetInteger("gTelemetry.Enabled", enabled ? 1 : 0);
+    LoadSettings();
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
 void TelemetryManager::SetItemFeedbackEnabled(bool enabled) {
     mEnableItemFeedback = enabled;
     CVarSetInteger("gTelemetry.EnableItemFeedback", enabled ? 1 : 0);
     Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetBoostSurgeEnabled(bool enabled) {
+    mEventBoostSurge = enabled;
+    CVarSetInteger("gTelemetry.Event.BoostSurge", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetLandingShockEnabled(bool enabled) {
+    mEventLandingShock = enabled;
+    CVarSetInteger("gTelemetry.Event.LandingShock", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetWallHitEnabled(bool enabled) {
+    mEventWallHit = enabled;
+    CVarSetInteger("gTelemetry.Event.WallHit", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetHitEnabled(bool enabled) {
+    mEventHit = enabled;
+    CVarSetInteger("gTelemetry.Event.Hit", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetSpinoutEnabled(bool enabled) {
+    mEventSpinout = enabled;
+    CVarSetInteger("gTelemetry.Event.Spinout", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetJumpingEnabled(bool enabled) {
+    mEventJumping = enabled;
+    CVarSetInteger("gTelemetry.Event.Jumping", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetSuspensionEnabled(bool enabled) {
+    mEventSuspension = enabled;
+    CVarSetInteger("gTelemetry.Event.Suspension", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetWheelSlipEnabled(bool enabled) {
+    mEventWheelSlip = enabled;
+    CVarSetInteger("gTelemetry.Event.WheelSlip", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetSurfaceContactEnabled(bool enabled) {
+    mEventSurfaceContact = enabled;
+    CVarSetInteger("gTelemetry.Event.SurfaceContact", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetHopHeaveEnabled(bool enabled) {
+    mEventHopHeave = enabled;
+    CVarSetInteger("gTelemetry.Event.HopHeave", enabled ? 1 : 0);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::SetHopHeaveForce(float force) {
+    mHopHeaveForce = force;
+    CVarSetFloat("gTelemetry.HopHeaveForce", force);
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
+void TelemetryManager::TriggerHopHeave() {
+    if (!pImpl) return;
+    pImpl->preHopPitchDeg = pImpl->lastPitchDeg;
+    pImpl->hopHeaveFrames = 7;
 }
 
 void TelemetryManager::TriggerItemFeedback(int itemId) {
@@ -716,5 +1074,9 @@ bool TelemetryManager_IsItemFeedbackEnabled() {
 
 void TelemetryManager_SetItemFeedbackEnabled(bool enabled) {
     TelemetryManager::GetInstance()->SetItemFeedbackEnabled(enabled);
+}
+
+void TelemetryManager_TriggerHopHeave() {
+    TelemetryManager::GetInstance()->TriggerHopHeave();
 }
 }

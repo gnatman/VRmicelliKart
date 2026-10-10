@@ -19,6 +19,8 @@ extern "C" {
 #include "math_util.h"
 #include "skybox_and_splitscreen.h"
 #include "menus.h"
+#include "code_80057C60.h"
+#include "render_objects.h"
 }
 
 Vtx Sky::mSkyboxScreenOne[8] = { // D_802B8890
@@ -398,9 +400,6 @@ EXTERN_C void DrawSkyActors(ScreenContext* screen, s32 arg0) {
 }
 
 EXTERN_C void TickSkyActors() {
-    if (VR_IsVREnabled()) {
-        return;
-    }
     for (auto& cloud : Sky::Instance->GetSkyActors()) {
         cloud->Tick();
     }
@@ -477,6 +476,32 @@ void Sky::DrawVRSky(ScreenContext* screen) {
             int next = (i + 1) % 16;
             gSP1Triangle(gDisplayListHead++, 0, 1 + next, 1 + i, 0);
         }
+    }
+
+    // Draw 3D Sky Actors (Clouds and Stars) on top of the dome in VR perspective space
+    if (!mSkyActors.empty() && (CVarGetInteger("gDrawSkyActors", true) == true)) {
+        init_rdp();
+        gDPSetRenderMode(gDisplayListHead++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+        gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER | G_LIGHTING | G_CULL_BACK | G_CULL_FRONT);
+        gSPSetGeometryMode(gDisplayListHead++, G_SHADE | G_SHADING_SMOOTH);
+        gSPTexture(gDisplayListHead++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
+        gDPSetTexturePersp(gDisplayListHead++, G_TP_PERSP);
+        gDPSetTextureFilter(gDisplayListHead++, G_TF_BILERP);
+
+        if (bFog) {
+            func_8004B6C4(gFogColour.r, gFogColour.g, gFogColour.b);
+        } else {
+            func_8004B6C4(255, 255, 255);
+        }
+
+        D_8018D228 = 0xFF;
+        for (auto& actor : mSkyActors) {
+            if (actor->mScreen == screen) {
+                actor->DrawVR(screen);
+            }
+        }
+
+        gSPTexture(gDisplayListHead++, 1, 1, 0, G_TX_RENDERTILE, G_OFF);
     }
 
     // Restore Z-buffer geometry mode and AA ZB render mode for course geometry

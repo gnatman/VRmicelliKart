@@ -263,63 +263,16 @@ static void BuildLocalMatrix(Mat4 mtx,
 }
 
 static void DrawSteeringWheelGeometry() {
-    // 1. Front Rim Face (16 quads / 32 triangles)
-    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelRimFrontVtx, 32, 0);
-    for (int i = 0; i < 16; i++) {
-        int next = (i + 1) % 16;
+    // 1. Steering Column tube going FORWARD into the dashboard (Z=2 to 65, furthest back)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sSteeringColumnVtx, 8, 0);
+    for (int i = 0; i < 4; i++) {
+        int next = (i + 1) % 4;
         gSP2Triangles(gDisplayListHead++,
-            i, next, 16 + next, 0,
-            i, 16 + next, 16 + i, 0);
+            i, next, 4 + next, 0,
+            i, 4 + next, 4 + i, 0);
     }
 
-    // 2. Outer Rim Bevel (16 quads)
-    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelRimSideOuterVtx, 32, 0);
-    for (int i = 0; i < 16; i++) {
-        int next = (i + 1) % 16;
-        gSP2Triangles(gDisplayListHead++,
-            i, next, 16 + next, 0,
-            i, 16 + next, 16 + i, 0);
-    }
-
-    // 3. Inner Rim Bevel (16 quads)
-    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelRimSideInnerVtx, 32, 0);
-    for (int i = 0; i < 16; i++) {
-        int next = (i + 1) % 16;
-        gSP2Triangles(gDisplayListHead++,
-            i, 16 + next, next, 0,
-            i, 16 + i, 16 + next, 0);
-    }
-
-    // 4. Center Hub: White Circle Background
-    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelHubWhiteVtx, 17, 0);
-    for (int i = 0; i < 16; i++) {
-        int next = (i + 1) % 16;
-        gSP1Triangle(gDisplayListHead++, 0, 1 + i, 1 + next, 0);
-    }
-
-    // 5. Red Emblem Disc (in front of white circle)
-    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelBadgeRedVtx, 17, 0);
-    for (int i = 0; i < 16; i++) {
-        int next = (i + 1) % 16;
-        gSP1Triangle(gDisplayListHead++, 0, 1 + i, 1 + next, 0);
-    }
-
-    // 6. Crisp White Mario "M" Logo (in front of red emblem)
-    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelMLogoVtx, 12, 0);
-    // Left upright pillar (0..3)
-    gSP2Triangles(gDisplayListHead++,
-        0, 1, 2, 0,
-        0, 2, 3, 0);
-    // Right upright pillar (4..7)
-    gSP2Triangles(gDisplayListHead++,
-        4, 5, 6, 0,
-        4, 6, 7, 0);
-    // Center V dip (8..11)
-    gSP2Triangles(gDisplayListHead++,
-        8, 10, 11, 0,
-        8, 11, 9, 0);
-
-    // 7. Three Straight Spokes (at Z=1, behind hub and rim face)
+    // 2. Three Straight Spokes (at Z=1, behind hub and rim face)
     gSPVertex(gDisplayListHead++, (uintptr_t)sWheelSpokesVtx, 12, 0);
     // Left Spoke (0..3)
     gSP2Triangles(gDisplayListHead++,
@@ -334,14 +287,61 @@ static void DrawSteeringWheelGeometry() {
         8, 9, 10, 0,
         8, 10, 11, 0);
 
-    // 8. Steering Column tube going FORWARD into the dashboard
-    gSPVertex(gDisplayListHead++, (uintptr_t)sSteeringColumnVtx, 8, 0);
-    for (int i = 0; i < 4; i++) {
-        int next = (i + 1) % 4;
+    // 3. Outer Rim Bevel (16 quads, Z=0 to 18)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelRimSideOuterVtx, 32, 0);
+    for (int i = 0; i < 16; i++) {
+        int next = (i + 1) % 16;
         gSP2Triangles(gDisplayListHead++,
-            i, next, 4 + next, 0,
-            i, 4 + next, 4 + i, 0);
+            i, next, 16 + next, 0,
+            i, 16 + next, 16 + i, 0);
     }
+
+    // 4. Inner Rim Bevel (16 quads, Z=0 to 18)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelRimSideInnerVtx, 32, 0);
+    for (int i = 0; i < 16; i++) {
+        int next = (i + 1) % 16;
+        gSP2Triangles(gDisplayListHead++,
+            i, 16 + next, next, 0,
+            i, 16 + i, 16 + next, 0);
+    }
+
+    // 5. Front Rim Face (16 quads / 32 triangles, Z=0)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelRimFrontVtx, 32, 0);
+    for (int i = 0; i < 16; i++) {
+        int next = (i + 1) % 16;
+        gSP2Triangles(gDisplayListHead++,
+            i, next, 16 + next, 0,
+            i, 16 + next, 16 + i, 0);
+    }
+
+    // 6. Center Hub: White Circle Background (Z=-2)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelHubWhiteVtx, 17, 0);
+    for (int i = 0; i < 16; i++) {
+        int next = (i + 1) % 16;
+        gSP1Triangle(gDisplayListHead++, 0, 1 + i, 1 + next, 0);
+    }
+
+    // 7. Red Emblem Disc (Z=-3, in front of white circle)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelBadgeRedVtx, 17, 0);
+    for (int i = 0; i < 16; i++) {
+        int next = (i + 1) % 16;
+        gSP1Triangle(gDisplayListHead++, 0, 1 + i, 1 + next, 0);
+    }
+
+    // 8. Crisp White Mario "M" Logo (Z=-4, in front of red emblem)
+    gSPVertex(gDisplayListHead++, (uintptr_t)sWheelMLogoVtx, 12, 0);
+    // Left upright pillar (0..3)
+    gSP2Triangles(gDisplayListHead++,
+        0, 1, 2, 0,
+        0, 2, 3, 0);
+    // Right upright pillar (4..7)
+    gSP2Triangles(gDisplayListHead++,
+        4, 5, 6, 0,
+        4, 6, 7, 0);
+    // Center V dip (8..11)
+    gSP2Triangles(gDisplayListHead++,
+        8, 10, 11, 0,
+        8, 11, 9, 0);
 }
 
 static void DrawTireGeometry() {
@@ -507,22 +507,55 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     mtxCockpitBase[3][2] = basePos[2];
     mtxCockpitBase[3][3] = 1.0f;
 
-    // Set 3D render state: smooth shading, Z-buffer, opaque surface
+    // Check if the ghost effect (Boo item / transparency) is active
+    bool isGhostActive = false;
+    uint8_t cockpitAlpha = 255;
+    if (CVarGetInteger("gVRGhostTransparency", 1) == 1) {
+        if (CVarGetInteger("gVRTestGhostTransparency", 0) == 1) {
+            isGhostActive = true;
+            cockpitAlpha = ALPHA_BOO_EFFECT; // 0x60 (96), exactly matching active Boo effect
+        } else if ((player->effects & BOO_EFFECT) != 0 || player->alpha < 255) {
+            isGhostActive = true;
+            cockpitAlpha = static_cast<uint8_t>(std::clamp((int)player->alpha, 0, 255));
+        }
+    }
+
+    // Set 3D render state: smooth shading, Z-buffer
     gSPSetGeometryMode(gDisplayListHead++, G_SHADING_SMOOTH | G_ZBUFFER);
     gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_CULL_BOTH);
-    gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
 
-    // Star Power: Smooth cycling rainbow lighting across cockpit geometry
+    if (isGhostActive && cockpitAlpha < 255) {
+        // Translucent mode: blends transparent cockpit with scene in frame buffer
+        gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+    } else {
+        // Standard opaque surface mode
+        gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+    }
+
+    // Star Power / Rainbow & Ghost Alpha color combiner setup
     bool isStarActive = ((player->effects & STAR_EFFECT) != 0);
     uint8_t starR = 255, starG = 255, starB = 255;
     if (isStarActive) {
         float phase = std::fmod((float)gCourseTimer * 0.08f, 1.0f);
         GetRainbowColor(phase, starR, starG, starB);
-        gDPSetPrimColor(gDisplayListHead++, 0, 0, starR, starG, starB, 180);
-        gDPSetCombineLERP(gDisplayListHead++, PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, 1,
-                                              PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, 1);
+        if (isGhostActive && cockpitAlpha < 255) {
+            gDPSetPrimColor(gDisplayListHead++, 0, 0, starR, starG, starB, 180);
+            gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, cockpitAlpha);
+            gDPSetCombineLERP(gDisplayListHead++, PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, ENVIRONMENT,
+                                                  PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, ENVIRONMENT);
+        } else {
+            gDPSetPrimColor(gDisplayListHead++, 0, 0, starR, starG, starB, 180);
+            gDPSetCombineLERP(gDisplayListHead++, PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, 1,
+                                                  PRIMITIVE, SHADE, PRIMITIVE_ALPHA, SHADE, 0, 0, 0, 1);
+        }
     } else {
-        gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+        if (isGhostActive && cockpitAlpha < 255) {
+            gDPSetPrimColor(gDisplayListHead++, 0, 0, 255, 255, 255, cockpitAlpha);
+            gDPSetCombineLERP(gDisplayListHead++, 0, 0, 0, SHADE, 0, 0, 0, PRIMITIVE,
+                                                  0, 0, 0, SHADE, 0, 0, 0, PRIMITIVE);
+        } else {
+            gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
+        }
     }
 
     // Get player steering input [-1.0f, +1.0f]
@@ -611,10 +644,11 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
 
         DrawDriftSparks(0, player->driftState, mtxCockpitBase, tireX, tireY, tireZ, steerAngleTire, tireScale);
         DrawDriftSparks(1, player->driftState, mtxCockpitBase, tireX, tireY, tireZ, steerAngleTire, tireScale);
-
-        gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
-        gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
     }
+
+    // Restore standard opaque render mode and shade combine mode for subsequent game rendering
+    gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+    gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
 }
 
 extern "C" s16 gPlayerHeldItem[4] = { 0, 0, 0, 0 };
