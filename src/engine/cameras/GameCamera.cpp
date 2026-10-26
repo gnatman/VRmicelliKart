@@ -149,18 +149,45 @@ extern "C" bool VR_IsVREnabled(void) {
 extern "C" void VR_UpdateBaseTrackingFromLookAt(const float* eye, const float* at, const float* up) {
     auto window = Ship::Context::GetInstance()->GetWindow();
     if (window != nullptr) {
-        // Invert X of the forward and up vectors to match the VR tracking coordinate space convention
-        // (the same inversion applied in GameCamera::SetViewProjection to prevent 180-degree flipped viewing).
-        float conv_at[3] = {
-            eye[0] - (at[0] - eye[0]),
-            eye[1] + (at[1] - eye[1]),
-            eye[2] + (at[2] - eye[2])
-        };
-        float conv_up[3] = {
-            -up[0],
-            up[1],
-            up[2]
-        };
+        float conv_at[3];
+        float conv_up[3];
+
+        bool flattenHorizon = (gGamestate == ENDING || gGamestate == CREDITS_SEQUENCE) &&
+                              (CVarGetInteger("gVRFlatCeremonyCamera", 1) == 1);
+
+        if (flattenHorizon) {
+            // Keep the user's VR camera perfectly horizontal to the horizon (zero pitch, zero roll)
+            // across all camera cuts and spline shots in the trophy ceremony and credits.
+            float dx = at[0] - eye[0];
+            float dz = at[2] - eye[2];
+            float len_xz = sqrtf(dx * dx + dz * dz);
+
+            if (len_xz > 0.001f) {
+                // Invert X of horizontal forward vector to match VR tracking coordinate space convention
+                conv_at[0] = eye[0] - dx;
+                conv_at[1] = eye[1]; // Level with horizon (flat)
+                conv_at[2] = eye[2] + dz;
+            } else {
+                conv_at[0] = eye[0];
+                conv_at[1] = eye[1];
+                conv_at[2] = eye[2] - 1.0f;
+            }
+
+            // Always perfectly upright (flat, not angled/rolled)
+            conv_up[0] = 0.0f;
+            conv_up[1] = 1.0f;
+            conv_up[2] = 0.0f;
+        } else {
+            // Invert X of the forward and up vectors to match the VR tracking coordinate space convention
+            // (the same inversion applied in GameCamera::SetViewProjection to prevent 180-degree flipped viewing).
+            conv_at[0] = eye[0] - (at[0] - eye[0]);
+            conv_at[1] = eye[1] + (at[1] - eye[1]);
+            conv_at[2] = eye[2] + (at[2] - eye[2]);
+
+            conv_up[0] = -up[0];
+            conv_up[1] = up[1];
+            conv_up[2] = up[2];
+        }
 
         float q[4];
         LookAtToQuaternion(eye, conv_at, conv_up, q);

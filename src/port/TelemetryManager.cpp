@@ -92,6 +92,8 @@ struct TelemetryManager::Impl {
     bool lastIsAirborne = false;
     bool lastIsJumping = false;
     int32_t lastEventFlags = 0;
+    uint16_t lastTyreContact[4] = { 0, 0, 0, 0 };
+    uint8_t lastTyreRaw[4] = { 0, 0, 0, 0 };
 };
 
 TelemetryManager* TelemetryManager::mInstance = nullptr;
@@ -577,8 +579,8 @@ void TelemetryManager::Update() {
     packet.VehiclePositionUp = (double)p->pos[1] * posToMeters;
     packet.VehiclePositionNorth = (double)-p->pos[2] * posToMeters; // N64 Z is South
 
-    // 7. Race State & Ground Speed
-    packet.GroundSpeedKmh = p->speed * mSpeedFactor;
+    // 7. Race State & Speed (Standard SpeedKmh for SimHub)
+    packet.SpeedKmh = p->speed * mSpeedFactor;
     packet.CompletedLaps = (uint32_t)p->lapCount;
     packet.RacePosition = p->currentRank;
     
@@ -675,13 +677,46 @@ void TelemetryManager::Update() {
         }
     };
 
+    // Helper to get effective surface for each wheel.
+    // In MK64's 1-player physics loop (func_80029B4C), p->tyres[t].surfaceType often fails to detect
+    // off-road terrain triangles and remains stuck on ASPHALT (1), whereas p->surfaceType (derived from
+    // the kart center collision meshIndexZX) is always authoritative.
+    auto getWheelSurface = [p](int t) -> uint8_t {
+        uint8_t tyreSurf = p->tyres[t].surfaceType;
+        // If the tyre detected a valid off-road or special surface, use it
+        if (tyreSurf == GRASS || tyreSurf == SNOW_OFFROAD ||
+            tyreSurf == DIRT || tyreSurf == DIRT_OFFROAD ||
+            tyreSurf == SAND || tyreSurf == SAND_OFFROAD || tyreSurf == WET_SAND ||
+            tyreSurf == ICE || tyreSurf == CLIFF ||
+            tyreSurf == BOOST_RAMP_ASPHALT || tyreSurf == BOOST_RAMP_WOOD ||
+            tyreSurf == TRAIN_TRACK || tyreSurf == ROPE_BRIDGE || tyreSurf == WOOD_BRIDGE || tyreSurf == RAMP) {
+            return tyreSurf;
+        }
+        // If the kart body is on an off-road or special surface, fall back to the kart's authoritative surfaceType
+        if (p->surfaceType != ASPHALT && p->surfaceType != AIRBORNE && p->surfaceType != 0) {
+            return (uint8_t)p->surfaceType;
+        }
+        return tyreSurf;
+    };
+
     float suspVel[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     for (int t = 0; t < 4; t++) {
         if (!pImpl->suspInitialized || isAirborne || (p->speed < 0.08f)) {
             suspVel[t] = 0.0f;
         } else {
             float dH = (p->tyres[t].baseHeight - pImpl->lastTyreHeight[t]) * velScale;
-            suspVel[t] = std::clamp(dH / dt, -20.0f, 20.0f);
+            float v = std::clamp(dH / dt, -20.0f, 20.0f);
+
+            // Procedural terrain micro-texture for offroad surfaces (grass, dirt, sand, snow)
+            // Ensures suspension-driven bass shaker effects ("Road vibration") also rumble on turf/gravel.
+            uint8_t surf = getWheelSurface(t);
+            if (surf == GRASS || surf == SNOW_OFFROAD || surf == DIRT || surf == DIRT_OFFROAD || surf == SAND || surf == SAND_OFFROAD) {
+                float roughAmp = (surf == GRASS || surf == SNOW_OFFROAD) ? 2.5f : 3.5f;
+                float speedFactor = std::clamp(p->speed / 8.0f, 0.0f, 1.0f);
+                float freqPhase = (float)(pImpl->packetCounter * 3 + t * 7) * 0.45f;
+                v += std::sin(freqPhase) * roughAmp * speedFactor;
+            }
+            suspVel[t] = v;
         }
         pImpl->lastTyreHeight[t] = p->tyres[t].baseHeight;
     }
@@ -704,17 +739,21 @@ void TelemetryManager::Update() {
         packet.TyreContactSurfaceFrontRight = SIMHUB_SURFACE_NONE;
         packet.TyreContactSurfaceRearLeft   = SIMHUB_SURFACE_NONE;
         packet.TyreContactSurfaceRearRight  = SIMHUB_SURFACE_NONE;
-    } else if (mEventSurfaceContact) {
-        packet.TyreContactSurfaceFrontLeft  = mapSurface(p->tyres[FRONT_LEFT].surfaceType);
-        packet.TyreContactSurfaceFrontRight = mapSurface(p->tyres[FRONT_RIGHT].surfaceType);
-        packet.TyreContactSurfaceRearLeft   = mapSurface(p->tyres[BACK_LEFT].surfaceType);
-        packet.TyreContactSurfaceRearRight  = mapSurface(p->tyres[BACK_RIGHT].surfaceType);
     } else {
-        packet.TyreContactSurfaceFrontLeft  = SIMHUB_SURFACE_PRIMARY;
-        packet.TyreContactSurfaceFrontRight = SIMHUB_SURFACE_PRIMARY;
-        packet.TyreContactSurfaceRearLeft   = SIMHUB_SURFACE_PRIMARY;
-        packet.TyreContactSurfaceRearRight  = SIMHUB_SURFACE_PRIMARY;
+        packet.TyreContactSurfaceFrontLeft  = mapSurface(getWheelSurface(FRONT_LEFT));
+        packet.TyreContactSurfaceFrontRight = mapSurface(getWheelSurface(FRONT_RIGHT));
+        packet.TyreContactSurfaceRearLeft   = mapSurface(getWheelSurface(BACK_LEFT));
+        packet.TyreContactSurfaceRearRight  = mapSurface(getWheelSurface(BACK_RIGHT));
     }
+
+    pImpl->lastTyreContact[FRONT_LEFT]  = packet.TyreContactSurfaceFrontLeft;
+    pImpl->lastTyreContact[FRONT_RIGHT] = packet.TyreContactSurfaceFrontRight;
+    pImpl->lastTyreContact[BACK_LEFT]   = packet.TyreContactSurfaceRearLeft;
+    pImpl->lastTyreContact[BACK_RIGHT]  = packet.TyreContactSurfaceRearRight;
+    pImpl->lastTyreRaw[FRONT_LEFT]      = p->tyres[FRONT_LEFT].surfaceType;
+    pImpl->lastTyreRaw[FRONT_RIGHT]     = p->tyres[FRONT_RIGHT].surfaceType;
+    pImpl->lastTyreRaw[BACK_LEFT]       = p->tyres[BACK_LEFT].surfaceType;
+    pImpl->lastTyreRaw[BACK_RIGHT]      = p->tyres[BACK_RIGHT].surfaceType;
 
     // 12. Custom Fields: EventFlags, SurfaceType
     packet.EventFlags = 0;
@@ -796,7 +835,7 @@ void TelemetryManager::DrawSettings() {
         if (ImGui::InputFloat("Speed Scaling Factor", &mSpeedFactor, 0.1f, 1.0f, "%.2f")) {
             SaveSettings();
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("MK64 internal speed * factor = GroundSpeedKmh (also scales velocities and displacements).");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("MK64 internal speed * factor = SpeedKmh (also scales velocities and displacements).");
 
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Motion Platform Tuning & Limits:");
@@ -825,6 +864,20 @@ void TelemetryManager::DrawSettings() {
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Individual Telemetry Cues & Events (Enable / Disable):");
         ImGui::TextDisabled("Toggle specific cues and events to isolate, tune, and test each channel on your motion rig or bass shakers.");
+        if (ImGui::Button("Enable All Cues & Events (Recommended Defaults)")) {
+            mEventBoostSurge = true;
+            mEventLandingShock = true;
+            mEventWallHit = true;
+            mEventHit = true;
+            mEventSpinout = true;
+            mEventJumping = true;
+            mEventHopHeave = true;
+            mEnableItemFeedback = true;
+            mEventSuspension = true;
+            mEventWheelSlip = true;
+            mEventSurfaceContact = true;
+            SaveSettings();
+        }
 
         // 1. Boost Surge
         if (ImGui::Checkbox("Enable Boost Surge Kick", &mEventBoostSurge)) {
@@ -926,6 +979,11 @@ void TelemetryManager::DrawSettings() {
                 ImGui::Text("Pitch: %+.1f deg | Roll: %+.1f deg | Yaw: %+.1f deg", (float)p->slopeAccel * binToDeg, (float)p->unk_206 * binToDeg, (float)p->rotation[1] * binToDeg);
                 ImGui::Text("Surge: %+.1f m/s^2 | Sway: %+.1f m/s^2 | Heave: %+.1f m/s^2", pImpl->smoothedSurge, pImpl->smoothedSway, pImpl->smoothedHeave);
                 ImGui::Text("Airborne: %s | Boosting: %s | Surface: %d", pImpl->lastIsAirborne ? "YES" : "No", (p->boostTimer > 0) ? "YES" : "No", (int)p->surfaceType);
+                ImGui::Text("Tyre Surface (SimHub Bitmask): FL:%d FR:%d RL:%d RR:%d (Raw: %d,%d,%d,%d)",
+                    (int)pImpl->lastTyreContact[FRONT_LEFT], (int)pImpl->lastTyreContact[FRONT_RIGHT],
+                    (int)pImpl->lastTyreContact[BACK_LEFT], (int)pImpl->lastTyreContact[BACK_RIGHT],
+                    (int)pImpl->lastTyreRaw[FRONT_LEFT], (int)pImpl->lastTyreRaw[FRONT_RIGHT],
+                    (int)pImpl->lastTyreRaw[BACK_LEFT], (int)pImpl->lastTyreRaw[BACK_RIGHT]);
 
                 if (ImGui::TreeNode("Active Event Flags Breakdown")) {
                     ImGui::BulletText("Boosting Surge: %s (%s)", (pImpl->lastEventFlags & TELEMETRY_EVENT_BOOSTING) ? "ACTIVE" : "Idle", mEventBoostSurge ? "Enabled" : "Disabled");

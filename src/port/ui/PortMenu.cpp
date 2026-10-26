@@ -659,6 +659,12 @@ void PortMenu::AddVR() {
             .DefaultIndex(0)
             .Tooltip("Switch between Chase (behind character) and Cockpit (first-person) camera modes."));
 
+    AddWidget(path, "Flat Ceremony Camera", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRFlatCeremonyCamera")
+        .Options(CheckboxOptions()
+            .DefaultValue(true)
+            .Tooltip("Keeps the VR camera level with the horizon (flat, zero pitch and roll) during the final trophy ceremony and credits cutscenes."));
+
     AddWidget(path, "Head Height: %.2f", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRHeadHeight")
         .PreFunc([](WidgetInfo& info) { info.isHidden = CVarGetInteger("gVRCameraMode", 0) != 1; })

@@ -6,7 +6,7 @@
 struct TelemetryPacket {
     // Header (54 bytes)
     uint32_t GameSignature;                 // 0x00 (0xE1E56A8F)
-    uint32_t TelemetrySignature;            // 0x04 (0x386A90C1)
+    uint32_t TelemetrySignature;            // 0x04 (0x347143B1)
     uint16_t LayoutMajorVersion;            // 0x08 (1)
     uint16_t LayoutMinorVersion;            // 0x0A (0)
     uint64_t EmitterInstanceId;             // 0x0C
@@ -43,7 +43,7 @@ struct TelemetryPacket {
     double   VehiclePositionUp;             // 0x77
 
     uint8_t  FlightIsOnGround;              // 0x7F (1=ground, 0=air)
-    float    GroundSpeedKmh;                // 0x80
+    float    SpeedKmh;                      // 0x80
 
     float    Throttle;                      // 0x84 (0.0 - 1.0)
     float    Brake;                         // 0x88 (0.0 - 1.0)
@@ -81,7 +81,7 @@ static_assert(sizeof(TelemetryPacket) == 219, "TelemetryPacket size mismatch: mu
 
 // SimHub Constants
 #define TELEMETRY_GAME_SIGNATURE 0xE1E56A8F
-#define TELEMETRY_PROTOCOL_SIGNATURE 0x386A90C1
+#define TELEMETRY_PROTOCOL_SIGNATURE 0x347143B1
 
 // SimHub Tyre Contact Surface bitmask values
 #define SIMHUB_SURFACE_NONE         0

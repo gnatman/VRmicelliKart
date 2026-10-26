@@ -168,9 +168,10 @@ void FirstPersonCockpit_Init(void) {
     }
 
     // =========================================================================
-    // 4. Front Tires (16-segment cylinder with dual yellow rims)
+    // 4. Front Tires (16-segment cylinder with dual rims)
     // Radius: 100, Width: 90 (from -45 to +45)
-    // Both outer and inner faces have yellow rims so wheels look great from all angles.
+    // Both outer and inner faces have spoke rims so wheels look great from all angles.
+    // Default spoke color is sleek metallic silver/chrome to contrast cleanly with drift sparks.
     // =========================================================================
     constexpr int kTireSegments = 16;
 
@@ -182,7 +183,7 @@ void FirstPersonCockpit_Init(void) {
         short tz = static_cast<short>(std::sin(angle) * 100.0f);
 
         if (i % 2 == 0) {
-            SetVtx(sTireOuterRimVtx[1 + i], 45, ty, tz, 245, 205, 20); // Bright Yellow spoke
+            SetVtx(sTireOuterRimVtx[1 + i], 45, ty, tz, 195, 200, 210); // Sleek metallic silver spoke
         } else {
             SetVtx(sTireOuterRimVtx[1 + i], 42, ty, tz, 45, 48, 52);   // Dark recessed rim gap
         }
@@ -196,7 +197,7 @@ void FirstPersonCockpit_Init(void) {
         short tz = static_cast<short>(std::sin(angle) * 100.0f);
 
         if (i % 2 == 0) {
-            SetVtx(sTireInnerRimVtx[1 + i], -45, ty, tz, 245, 205, 20); // Bright Yellow spoke
+            SetVtx(sTireInnerRimVtx[1 + i], -45, ty, tz, 195, 200, 210); // Sleek metallic silver spoke
         } else {
             SetVtx(sTireInnerRimVtx[1 + i], -42, ty, tz, 45, 48, 52);   // Dark recessed rim gap
         }
@@ -344,8 +345,32 @@ static void DrawSteeringWheelGeometry() {
         8, 11, 9, 0);
 }
 
+static void UpdateTireRimColors(bool isDrifting, s16 driftState) {
+    uint8_t rimR = 195, rimG = 200, rimB = 210; // Default: Sleek metallic silver/chrome
+
+    if (isDrifting) {
+        if (driftState == 1) {
+            rimR = 255; rimG = 230; rimB = 15;  // Stage 1: Neon Yellow (countersteering)
+        } else if (driftState >= 2) {
+            rimR = 255; rimG = 50;  rimB = 0;   // Stage 2: Fiery Red / Orange (Mini-Turbo ready!)
+        } else {
+            rimR = 210; rimG = 240; rimB = 255; // Stage 0: White-cyan electric sparks
+        }
+    }
+
+    for (int i = 0; i < 16; i += 2) {
+        sTireOuterRimVtx[1 + i].v.cn[0] = static_cast<signed char>(rimR);
+        sTireOuterRimVtx[1 + i].v.cn[1] = static_cast<signed char>(rimG);
+        sTireOuterRimVtx[1 + i].v.cn[2] = static_cast<signed char>(rimB);
+
+        sTireInnerRimVtx[1 + i].v.cn[0] = static_cast<signed char>(rimR);
+        sTireInnerRimVtx[1 + i].v.cn[1] = static_cast<signed char>(rimG);
+        sTireInnerRimVtx[1 + i].v.cn[2] = static_cast<signed char>(rimB);
+    }
+}
+
 static void DrawTireGeometry() {
-    // 1. Outer Face (Yellow rim with spokes and lug nut)
+    // 1. Outer Face (Rim with spokes and lug nut)
     gSPVertex(gDisplayListHead++, (uintptr_t)sTireOuterRimVtx, 17, 0);
     for (int i = 0; i < 16; i++) {
         int next = (i + 1) % 16;
@@ -361,7 +386,7 @@ static void DrawTireGeometry() {
             i, 16 + next, 16 + i, 0);
     }
 
-    // 3. Inner Face (Yellow rim with spokes and lug nut)
+    // 3. Inner Face (Rim with spokes and lug nut)
     gSPVertex(gDisplayListHead++, (uintptr_t)sTireInnerRimVtx, 17, 0);
     for (int i = 0; i < 16; i++) {
         int next = (i + 1) % 16;
@@ -617,17 +642,19 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     DrawSteeringWheelGeometry();
 
     // -------------------------------------------------------------
-    // 3. Front Left Tire
+    // 3. Front Tires
     // -------------------------------------------------------------
+    bool isDrifting = ((player->effects & DRIFTING_EFFECT) != 0) || (player->driftState > 0);
+    UpdateTireRimColors(isDrifting, player->driftState);
+
+    // Front Left Tire
     Mat4 mtxLocalLeftTire, mtxFinalLeftTire;
     BuildLocalMatrix(mtxLocalLeftTire, -tireX, tireY, tireZ, sTireRollAngle, steerAngleTire, 0.0f, tireScale, tireScale, tireScale);
     mtxf_multiplication(mtxFinalLeftTire, mtxLocalLeftTire, mtxCockpitBase);
     AddCockpitMatrix(mtxFinalLeftTire, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     DrawTireGeometry();
 
-    // -------------------------------------------------------------
-    // 4. Front Right Tire
-    // -------------------------------------------------------------
+    // Front Right Tire
     Mat4 mtxLocalRightTire, mtxFinalRightTire;
     BuildLocalMatrix(mtxLocalRightTire, tireX, tireY, tireZ, sTireRollAngle, steerAngleTire, 0.0f, tireScale, tireScale, tireScale);
     mtxf_multiplication(mtxFinalRightTire, mtxLocalRightTire, mtxCockpitBase);
@@ -635,9 +662,8 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     DrawTireGeometry();
 
     // -------------------------------------------------------------
-    // 5. Power Slide Tire Sparks (Drifting)
+    // 4. Power Slide Tire Sparks (Drifting)
     // -------------------------------------------------------------
-    bool isDrifting = ((player->effects & DRIFTING_EFFECT) != 0) || (player->driftState > 0);
     if (isDrifting && CVarGetInteger("gVRDriftSparks", 1) == 1) {
         gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
         gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
