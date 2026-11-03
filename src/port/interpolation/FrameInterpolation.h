@@ -13,6 +13,7 @@
 
 
 std::unordered_map<Mtx*, MtxF> FrameInterpolation_Interpolate(float step);
+void FrameInterpolation_InterpolateInto(float step, std::unordered_map<Mtx*, MtxF>& out);
 void FrameInterpolation_ApplyMatrixTransformations(Mat4* matrix, FVector pos, IRotator rot, FVector scale);
 
 extern "C" {

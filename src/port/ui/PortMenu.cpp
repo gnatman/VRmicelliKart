@@ -649,6 +649,26 @@ void PortMenu::AddVR() {
         .CVar("gVRPerformanceOverlay")
         .Options(CheckboxOptions().Tooltip("Show VR frame timings and status."));
 
+    AddWidget(path, "Desktop Mirror Mode", WIDGET_CVAR_COMBOBOX)
+        .CVar("gVRMirrorMode")
+        .Options(ComboboxOptions()
+            .ComboMap(vrMirrorModeOptions)
+            .DefaultIndex(1)
+            .Tooltip("Controls mirroring VR output to the desktop spectator window. 'Off (Menus Only)' and 'Throttled' save GPU/DXGI overhead to help maintain 120 FPS."));
+
+    AddWidget(path, "VR Texture Filtering", WIDGET_CVAR_COMBOBOX)
+        .CVar("gVRTextureFilter")
+        .Options(ComboboxOptions()
+            .ComboMap(vrTextureFilterOptions)
+            .DefaultIndex(Fast::FilteringMode::FILTER_LINEAR)
+            .Tooltip("Hardware Linear filtering uses 1 texture fetch per pixel instead of software 3-Point filtering (3 fetches + branch per pixel), saving significant GPU fillrate at high VR resolutions."));
+
+    AddWidget(path, "Disable Jumbotron Readback", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRDisableJumbotronReadback")
+        .Options(CheckboxOptions()
+            .DefaultValue(false)
+            .Tooltip("Skips the GPU-to-CPU framebuffer readback used for the jumbotron screens on Luigi Raceway and Wario Stadium."));
+
     AddSidebarEntry("VR", "Scale & View", 1);
     path.sidebarName = "Scale & View";
 

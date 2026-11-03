@@ -405,7 +405,7 @@ void GameEngine::StartFrame() const {
 // }
 
 void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::static_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
 
     if (wnd == nullptr) {
         return;
@@ -431,6 +431,44 @@ void GameEngine::RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx
     }
 }
 
+void GameEngine::RunCommands(Gfx* pool, const std::vector<float>& interpolation_steps) {
+    auto wnd = std::static_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+
+    if (wnd == nullptr) {
+        return;
+    }
+
+    auto interpreter = wnd->GetInterpreterWeak().lock().get();
+
+    // Process window events for resize, mouse, keyboard events
+    wnd->HandleEvents();
+
+    interpreter->mInterpolationIndex = 0;
+
+    static const std::unordered_map<Mtx*, MtxF> kEmptyMtxMap;
+    static std::unordered_map<Mtx*, MtxF> sInterpolatedMtx;
+    if (sInterpolatedMtx.bucket_count() < 1024) {
+        sInterpolatedMtx.reserve(1024);
+    }
+
+    for (float step : interpolation_steps) {
+        if (step < 0.0f) {
+            wnd->DrawAndRunGraphicsCommands(pool, kEmptyMtxMap);
+        } else {
+            FrameInterpolation_InterpolateInto(step, sInterpolatedMtx);
+            wnd->DrawAndRunGraphicsCommands(pool, sInterpolatedMtx);
+        }
+        interpreter->mInterpolationIndex++;
+    }
+
+    bool curAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
+    if (prevAltAssets != curAltAssets) {
+        prevAltAssets = curAltAssets;
+        Ship::Context::GetInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
+        gfx_texture_cache_clear();
+    }
+}
+
 /**
  * During the draw phase, the gfx pool is filled with graphics commands.
  * At the end of the game loop, these commands are sent into lus and interpreted
@@ -440,7 +478,12 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
     static auto sLastCommandsEnd = std::chrono::high_resolution_clock::time_point();
     auto now = std::chrono::high_resolution_clock::now();
 
-    std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
+    static std::vector<float> sInterpolationSteps;
+    sInterpolationSteps.clear();
+    if (sInterpolationSteps.capacity() < 8) {
+        sInterpolationSteps.reserve(8);
+    }
+
     int target_fps = GameEngine::Instance->GetInterpolationFPS();
     if (CVarGetInteger("gModifyInterpolationTargetFPS", 0)) {
         target_fps = CVarGetInteger("gInterpolationTargetFPS", 60);
@@ -462,31 +505,32 @@ void GameEngine::ProcessGfxCommands(Gfx* pool) {
     // time_base = fps * original_fps (one second)
     int next_original_frame = fps;
 
-    // Get matrix replacements for intermediate frames
+    // Compute interpolation step factors lazily per sub-frame (-1.0f sentinel = keyframe)
     while (time + original_fps <= next_original_frame) {
         time += original_fps;
         if (time != next_original_frame) {
-            mtx_replacements.push_back(FrameInterpolation_Interpolate((float) time / next_original_frame));
+            sInterpolationSteps.push_back((float) time / next_original_frame);
         } else {
-            mtx_replacements.emplace_back(); // No interpolation for key frames
+            sInterpolationSteps.push_back(-1.0f); // No interpolation for key frames
         }
     }
-    // printf("mtxf size: %d\n", mtx_replacements.size());
 
     time -= fps;
 
     if (sLastCommandsEnd.time_since_epoch().count() > 0 && Ship::VRToggle::IsVREnabled()) {
         float logicMs = std::chrono::duration<float, std::milli>(now - sLastCommandsEnd).count();
-        size_t frameCount = mtx_replacements.empty() ? 1 : mtx_replacements.size();
+        size_t frameCount = sInterpolationSteps.empty() ? 1 : sInterpolationSteps.size();
         Ship::VRRuntime::GetInstance()->RecordGameLogicTime(logicMs / (float)frameCount);
     }
 
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
-    if (wnd != nullptr) {
-        wnd->SetTargetFps(fps);
-        wnd->SetMaximumFrameLatency(1);
+    if (last_fps != fps) {
+        auto wnd = std::static_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+        if (wnd != nullptr) {
+            wnd->SetTargetFps(fps);
+            wnd->SetMaximumFrameLatency(1);
+        }
     }
-    RunCommands(pool, mtx_replacements);
+    RunCommands(pool, sInterpolationSteps);
 
     sLastCommandsEnd = std::chrono::high_resolution_clock::now();
 

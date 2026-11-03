@@ -614,6 +614,40 @@ void race_begin_viewport_4p(ScreenContext* screen) {
     func_802A39E0(screen);
 }
 
+typedef struct {
+    u8 initialized;
+    u8 refreshTick;
+    u8 sky;
+    u8 trackGeometry;
+    u8 cActors;
+    u8 cppActors;
+    u8 staticMeshActors;
+    u8 objects;
+    u8 players;
+    u8 transparentTrack;
+    u8 particles;
+    u8 itemBoxes;
+    u8 hud;
+} CachedDrawCVars;
+
+static CachedDrawCVars sDrawCVars = { 0 };
+
+static void RefreshCachedDrawCVars(void) {
+    sDrawCVars.initialized = 1;
+    sDrawCVars.refreshTick = 0;
+    sDrawCVars.sky = (CVarGetInteger("gDrawSky", true) == true);
+    sDrawCVars.trackGeometry = (CVarGetInteger("gDrawTrackGeometry", true) == true);
+    sDrawCVars.cActors = (CVarGetInteger("gDrawCActors", true) == true);
+    sDrawCVars.cppActors = (CVarGetInteger("gDrawCPPActors", true) == true);
+    sDrawCVars.staticMeshActors = (CVarGetInteger("gDrawStaticMeshActors", true) == true);
+    sDrawCVars.objects = (CVarGetInteger("gDrawObjects", true) == true);
+    sDrawCVars.players = (CVarGetInteger("gDrawPlayers", true) == true);
+    sDrawCVars.transparentTrack = (CVarGetInteger("gDrawTransparentTrack", true) == true);
+    sDrawCVars.particles = (CVarGetInteger("gDrawParticles", true) == true);
+    sDrawCVars.itemBoxes = (CVarGetInteger("gDrawItemBoxes", true) == true);
+    sDrawCVars.hud = (CVarGetInteger("gDrawHUD", true) == true);
+}
+
 void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
     Mat4 matrix;
     Camera* camera = screen->camera;
@@ -622,6 +656,10 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
     if (NULL == camera) {
         printf("[skybox_and_splitscreen.c] Skipping rendering for screen %d. This viewport has no camera\n", screen - gScreenContexts);
         return;
+    }
+
+    if (!sDrawCVars.initialized || (screenId == 0 && ++sDrawCVars.refreshTick >= 4)) {
+        RefreshCachedDrawCVars();
     }
 
     switch(mode) {
@@ -637,7 +675,7 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
             } else { // Player four
                 race_begin_viewport_4p(screen);
 
-                if ((CVarGetInteger("gDrawSky", true) == true)) {
+                if (sDrawCVars.sky) {
                     CM_RaceDrawSky(screen, someId);
                     func_80093A30(someId); // Fill box for thunderbolt?
                 }
@@ -646,7 +684,7 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
         default:
             race_begin_viewport(screen, mode);
 
-            if ((CVarGetInteger("gDrawSky", true) == true)) {
+            if (sDrawCVars.sky) {
                 CM_RaceDrawSky(screen, someId);
                 func_80093A30(someId); // Fill box for thunderbolt?
             }
@@ -682,40 +720,40 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
 
     // Draw track geography
 
-    if (CVarGetInteger("gDrawTrackGeometry", true) == true) {
+    if (sDrawCVars.trackGeometry) {
         render_track(screen);
     }
     FrameInterpolation_RecordCloseChild();
 
     // Draw dynamic game objects
-    if (CVarGetInteger("gDrawCActors", true) == true) {
+    if (sDrawCVars.cActors) {
         render_course_actors(screen);
     }
 
-    if (CVarGetInteger("gDrawCPPActors", true) == true) {
+    if (sDrawCVars.cppActors) {
         CM_DrawActors(camera);
     }
 
-    if (CVarGetInteger("gDrawStaticMeshActors", true) == true) {
+    if (sDrawCVars.staticMeshActors) {
         CM_DrawStaticMeshActors();
     }
 
-    if (CVarGetInteger("gDrawObjects", true) == true) {
+    if (sDrawCVars.objects) {
         render_object(screen);
     }
 
-    if (CVarGetInteger("gDrawPlayers", true) == true) {
+    if (sDrawCVars.players) {
         if (CM_IsTourEnabled() == false) {
             render_players(camera, screenId);
         }
     }
 
-    if (CVarGetInteger("gDrawTransparentTrack", true) == true) {
+    if (sDrawCVars.transparentTrack) {
         // Track geography
         draw_transparent_geography(screen, playerId);
     }
 
-    if (CVarGetInteger("gDrawParticles", true) == true) {
+    if (sDrawCVars.particles) {
         switch (playerId) { // Render player particles or some effect
             case 0: func_80021B0C(); break;
             case 1: func_80021C78(); break;
@@ -724,7 +762,7 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
         };
     }
 
-    if (CVarGetInteger("gDrawItemBoxes", true) == true) {
+    if (sDrawCVars.itemBoxes) {
         render_item_boxes(screen);
     }
     render_player_snow_effect(camera);
@@ -734,7 +772,7 @@ void render_screens(ScreenContext* screen, s32 mode, s32 someId, s32 playerId) {
     }
     func_80093A5C(mode); // Perhaps pause render?
 
-    if (CVarGetInteger("gDrawHUD", true) == true) {
+    if (sDrawCVars.hud) {
         if (D_800DC5B8 != 0) {
             render_hud(mode);
         }

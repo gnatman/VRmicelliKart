@@ -73,6 +73,7 @@ class GameEngine {
     static uint32_t GetInterpolationFrameCount();
     void StartFrame() const;
     static void RunCommands(Gfx* pool, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements);
+    static void RunCommands(Gfx* pool, const std::vector<float>& interpolation_steps);
     void ProcessFrame(void (*run_one_game_iter)()) const;
     static void Destroy();
     static void ProcessGfxCommands(Gfx* pool);

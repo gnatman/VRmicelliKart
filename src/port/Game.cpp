@@ -326,6 +326,7 @@ void CM_DrawTrack(ScreenContext* screen) {
                 } else {
                     GetWorld()->GetTrack()->DrawCredits();
                 }
+                break;
             case RENDER_TRACK_SECTIONS:
                 GetWorld()->GetTrack()->Draw(screen);
                 break;

@@ -1,8 +1,22 @@
+#ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+using SOCKET = int;
+#ifndef INVALID_SOCKET
+#define INVALID_SOCKET (-1)
+#endif
+#endif
 
 #include "TelemetryManager.h"
 #include "TelemetryPacket.h"
@@ -34,7 +48,9 @@ extern "C" {
     extern OSContPad gControllerPads[];
 }
 
+#ifdef _WIN32
 #pragma comment(lib, "Ws2_32.lib")
+#endif
 
 struct TelemetryManager::Impl {
     SOCKET socket = INVALID_SOCKET;
@@ -115,25 +131,47 @@ TelemetryManager::TelemetryManager() {
 
 TelemetryManager::~TelemetryManager() {
     if (pImpl->socket != INVALID_SOCKET) {
+#ifdef _WIN32
         closesocket(pImpl->socket);
+#else
+        close(pImpl->socket);
+#endif
     }
     delete pImpl;
+#ifdef _WIN32
     WSACleanup();
+#endif
 }
 
 void TelemetryManager::Init() {
+#ifdef _WIN32
     WSADATA wsaData;
     int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (res != 0) {
         SPDLOG_ERROR("TelemetryManager: WSAStartup failed: {}", res);
         return;
     }
+#endif
 
     pImpl->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (pImpl->socket == INVALID_SOCKET) {
+#ifdef _WIN32
         SPDLOG_ERROR("TelemetryManager: Socket creation failed: {}", WSAGetLastError());
+#else
+        SPDLOG_ERROR("TelemetryManager: Socket creation failed: {}", errno);
+#endif
         return;
     }
+
+#ifdef _WIN32
+    u_long nonBlocking = 1;
+    ioctlsocket(pImpl->socket, FIONBIO, &nonBlocking);
+#else
+    int flags = fcntl(pImpl->socket, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(pImpl->socket, F_SETFL, flags | O_NONBLOCK);
+    }
+#endif
 
     LoadSettings();
     SPDLOG_INFO("TelemetryManager: Initialized");

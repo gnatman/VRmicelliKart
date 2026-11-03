@@ -490,20 +490,63 @@ static void DrawDriftSparks(int tireSide, s16 driftState, Mat4 mtxCockpitBase,
     }
 }
 
+struct CockpitCVarCache {
+    bool initialized = false;
+    uint8_t tick = 0;
+    int cameraMode = 0;
+    bool drawCockpit = true;
+    float headHeight = 5.0f;
+    bool ghostTransparency = true;
+    bool testGhostTransparency = false;
+    float tireX = 3.84f;
+    float tireY = -4.13f;
+    float tireZ = 4.31f;
+    float tireScale = 0.020f;
+    float wheelY = -2.40f;
+    float wheelZ = 1.48f;
+    float wheelScale = 0.020f;
+    bool driftSparks = true;
+};
+
+static CockpitCVarCache sCockpitCVars;
+
+static void RefreshCockpitCVars() {
+    sCockpitCVars.initialized = true;
+    sCockpitCVars.tick = 0;
+    sCockpitCVars.cameraMode = CVarGetInteger("gVRCameraMode", 0);
+    sCockpitCVars.drawCockpit = (CVarGetInteger("gVRDrawCockpit", 1) == 1);
+    if (!sCockpitCVars.drawCockpit || sCockpitCVars.cameraMode != 1) {
+        return;
+    }
+    sCockpitCVars.headHeight = CVarGetFloat("gVRHeadHeight", 5.0f);
+    sCockpitCVars.ghostTransparency = (CVarGetInteger("gVRGhostTransparency", 1) == 1);
+    sCockpitCVars.testGhostTransparency = (CVarGetInteger("gVRTestGhostTransparency", 0) == 1);
+    sCockpitCVars.tireX = CVarGetFloat("gVRTireX", 3.84f);
+    sCockpitCVars.tireY = CVarGetFloat("gVRTireY", -4.13f);
+    sCockpitCVars.tireZ = CVarGetFloat("gVRTireZ", 4.31f);
+    sCockpitCVars.tireScale = CVarGetFloat("gVRTireScale", 0.020f);
+    sCockpitCVars.wheelY = CVarGetFloat("gVRWheelY", -2.40f);
+    sCockpitCVars.wheelZ = CVarGetFloat("gVRWheelZ", 1.48f);
+    sCockpitCVars.wheelScale = CVarGetFloat("gVRWheelScale", 0.020f);
+    sCockpitCVars.driftSparks = (CVarGetInteger("gVRDriftSparks", 1) == 1);
+}
+
 void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 screenId) {
     if (gGamestate != RACING) return;
+    if (playerId != screenId) return;
     if (!sCockpitInitialized) {
         FirstPersonCockpit_Init();
     }
 
+    if (!sCockpitCVars.initialized || ++sCockpitCVars.tick >= 4) {
+        RefreshCockpitCVars();
+    }
+
     // Only render for the local human player when in Cockpit VR mode
-    int cameraMode = CVarGetInteger("gVRCameraMode", 0);
-    if (cameraMode != 1) return;
-    if (playerId != screenId) return;
-    if (CVarGetInteger("gVRDrawCockpit", 1) != 1) return;
+    if (sCockpitCVars.cameraMode != 1 || !sCockpitCVars.drawCockpit) return;
 
     // Calculate head base position matching GameCamera's VR base tracking space exactly
-    float headHeight = CVarGetFloat("gVRHeadHeight", 5.0f);
+    float headHeight = sCockpitCVars.headHeight;
     float basePos[3] = {
         player->pos[0] + player->orientationMatrix[0][1] * headHeight,
         player->pos[1] + player->orientationMatrix[1][1] * headHeight,
@@ -535,8 +578,8 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     // Check if the ghost effect (Boo item / transparency) is active
     bool isGhostActive = false;
     uint8_t cockpitAlpha = 255;
-    if (CVarGetInteger("gVRGhostTransparency", 1) == 1) {
-        if (CVarGetInteger("gVRTestGhostTransparency", 0) == 1) {
+    if (sCockpitCVars.ghostTransparency) {
+        if (sCockpitCVars.testGhostTransparency) {
             isGhostActive = true;
             cockpitAlpha = ALPHA_BOO_EFFECT; // 0x60 (96), exactly matching active Boo effect
         } else if ((player->effects & BOO_EFFECT) != 0 || player->alpha < 255) {
@@ -611,14 +654,14 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     // -------------------------------------------------------------
     // Adjustable Cockpit Geometry Offsets (CVars)
     // -------------------------------------------------------------
-    float tireX = CVarGetFloat("gVRTireX", 3.84f);
-    float tireY = CVarGetFloat("gVRTireY", -4.13f);
-    float tireZ = CVarGetFloat("gVRTireZ", 4.31f);
-    float tireScale = CVarGetFloat("gVRTireScale", 0.020f);
+    float tireX = sCockpitCVars.tireX;
+    float tireY = sCockpitCVars.tireY;
+    float tireZ = sCockpitCVars.tireZ;
+    float tireScale = sCockpitCVars.tireScale;
 
-    float wheelY = CVarGetFloat("gVRWheelY", -2.40f);
-    float wheelZ = CVarGetFloat("gVRWheelZ", 1.48f);
-    float wheelScale = CVarGetFloat("gVRWheelScale", 0.020f);
+    float wheelY = sCockpitCVars.wheelY;
+    float wheelZ = sCockpitCVars.wheelZ;
+    float wheelScale = sCockpitCVars.wheelScale;
 
     float dashY = wheelY - 0.5f;
     float dashZ = wheelZ + 0.3f;
@@ -664,7 +707,7 @@ void FirstPersonCockpit_Render(Player* player, Camera* camera, s8 playerId, s8 s
     // -------------------------------------------------------------
     // 4. Power Slide Tire Sparks (Drifting)
     // -------------------------------------------------------------
-    if (isDrifting && CVarGetInteger("gVRDriftSparks", 1) == 1) {
+    if (isDrifting && sCockpitCVars.driftSparks) {
         gDPSetRenderMode(gDisplayListHead++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
         gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
 

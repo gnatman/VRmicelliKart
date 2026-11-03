@@ -63,6 +63,19 @@ static const std::unordered_map<int32_t, const char*> vrCameraModeOptions = {
     { 1, "Cockpit" },
 };
 
+static const std::unordered_map<int32_t, const char*> vrMirrorModeOptions = {
+    { 0, "Off (Menus Only)" },
+    { 1, "Throttled (Half Rate)" },
+    { 2, "Full Rate" },
+};
+
+static const std::unordered_map<int32_t, const char*> vrTextureFilterOptions = {
+    { Fast::FilteringMode::FILTER_LINEAR, "Linear (Recommended)" },
+    { Fast::FilteringMode::FILTER_THREE_POINT, "Three-Point (N64)" },
+    { Fast::FilteringMode::FILTER_NONE, "None (Nearest)" },
+    { -1, "Use Desktop Setting" },
+};
+
 class PortMenu : public Ship::Menu {
   public:
     PortMenu(const std::string& consoleVariable, const std::string& name);

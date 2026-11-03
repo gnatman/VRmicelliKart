@@ -5,7 +5,11 @@
 
 #ifdef __cplusplus
 
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include <cstdint>
 #include <unordered_map>
@@ -32,6 +36,7 @@ public:
     void SetFFBEnabled(bool enabled) { mFFBEnabled = enabled; SaveSettings(); }
 
     bool IsEnabled();
+    bool IsNativeSteerEnabled() const { return mNativeSteerEnabled; }
     bool IsZUpActive() const { return mZUpActive || (mStickYHoldFrames > 0 && mStickYHoldVal > 0); }
     bool IsZDownActive() const { return mZDownActive || (mStickYHoldFrames > 0 && mStickYHoldVal < 0); }
     bool IsZUpHeld() const { return mZUpActive; }
@@ -45,6 +50,10 @@ private:
     SDL_Joystick* mJoystick = nullptr;
     int mJoystickIndex = -1;
     std::string mJoystickGuid;
+    int mReconnectPollCounter = 0;
+
+    bool mWheelEnabled = false;
+    bool mNativeSteerEnabled = true;
 
     SDL_Haptic* mHaptic = nullptr;
     int mConstantEffectId = -1;
@@ -52,6 +61,22 @@ private:
     bool mHapticRumbleSupported = false;
     int mFFBMasterGain = 100;
     std::string mHapticErrorStr;
+
+    // Async FFB worker so DirectInput USB HID writes never stall the 120 Hz VR render thread
+    std::thread mFFBWorkerThread;
+    std::mutex mHapticMutex;
+    std::mutex mFFBQueueMutex;
+    std::condition_variable mFFBWorkerCv;
+    bool mFFBWorkerRunning = false;
+    int32_t mPendingForceLevel = 0;
+    bool mForceDirty = false;
+    int32_t mLastQueuedForceLevel = 0;
+    bool mHasQueuedForceOnce = false;
+
+    void StartFFBWorker();
+    void StopFFBWorker();
+    void FFBWorkerLoop();
+    void ReInitHapticEffectsLocked();
 
     // Haptics & Force Feedback Enable Switches
     bool mFFBEnabled = true;
@@ -83,10 +108,10 @@ private:
     float mLastPlayerSpeed = 0.0f;
     uint32_t mLastPlayerEffects = 0;
     uint32_t mLastPlayerTriggers = 0;
-    int mLastFFBUpdateResult = 0;
-    int mLastFFBEffectStatus = 0;
-    int mConsecutiveFFBErrors = 0;
-    int mAutoRearmCount = 0;
+    std::atomic<int> mLastFFBUpdateResult{ 0 };
+    std::atomic<int> mLastFFBEffectStatus{ 0 };
+    std::atomic<int> mConsecutiveFFBErrors{ 0 };
+    std::atomic<int> mAutoRearmCount{ 0 };
     int mTestJoltFrames = 0;
     bool mTestShakeActive = false;
     std::string mLastFFBError;

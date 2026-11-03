@@ -5,6 +5,7 @@
 #include "ship/utils/StringHelper.h"
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <chrono>
 
 extern "C" {
 #include "common_structs.h"
@@ -38,6 +39,8 @@ void WheelManager::Init() {
 }
 
 void WheelManager::LoadSettings() {
+    mWheelEnabled = CVarGetInteger("gWheel.Enabled", 0) != 0;
+    mNativeSteerEnabled = CVarGetInteger("gWheel.NativeSteer", 1) != 0;
     mSteeringAxis = CVarGetInteger("gWheel.SteeringAxis", -1);
     mThrottleAxis = CVarGetInteger("gWheel.ThrottleAxis", -1);
     mBrakeAxis = CVarGetInteger("gWheel.BrakeAxis", -1);
@@ -274,6 +277,7 @@ void WheelManager::OpenJoystick(int index) {
                 }
 
                 InitHapticEffects();
+                StartFFBWorker();
                 SPDLOG_INFO("Haptic Feedback Initialization Attempt Complete!");
             } else {
                 mHapticErrorStr = SDL_GetError();
@@ -311,6 +315,7 @@ void WheelManager::InitHapticEffects() {
             if (SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY) != 0) {
                 SPDLOG_ERROR("Failed to run CONSTANT effect: {}", SDL_GetError());
             } else {
+                mLastFFBEffectStatus.store(1, std::memory_order_relaxed);
                 SPDLOG_INFO("CONSTANT effect created and running with type {} (INFINITY iterations).",
                     (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
             }
@@ -320,7 +325,7 @@ void WheelManager::InitHapticEffects() {
     }
 }
 
-void WheelManager::ReInitHapticEffects() {
+void WheelManager::ReInitHapticEffectsLocked() {
     if (!mHaptic) return;
     SPDLOG_INFO("Reinitializing haptic effects (Re-arm)...");
     if (mConstantEffectId != -1) {
@@ -332,10 +337,136 @@ void WheelManager::ReInitHapticEffects() {
         mSineEffectId = -1;
     }
     InitHapticEffects();
-    mAutoRearmCount++;
+    mAutoRearmCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+void WheelManager::ReInitHapticEffects() {
+    std::lock_guard<std::mutex> lock(mHapticMutex);
+    ReInitHapticEffectsLocked();
+    mHasQueuedForceOnce = false;
+}
+
+void WheelManager::StartFFBWorker() {
+    StopFFBWorker();
+    if (!mHaptic) return;
+    {
+        std::lock_guard<std::mutex> qlock(mFFBQueueMutex);
+        mFFBWorkerRunning = true;
+        mPendingForceLevel = 0;
+        mForceDirty = true;
+    }
+    mHasQueuedForceOnce = false;
+    mLastQueuedForceLevel = 0;
+    mFFBWorkerThread = std::thread(&WheelManager::FFBWorkerLoop, this);
+}
+
+void WheelManager::StopFFBWorker() {
+    {
+        std::lock_guard<std::mutex> qlock(mFFBQueueMutex);
+        if (!mFFBWorkerRunning && !mFFBWorkerThread.joinable()) {
+            return;
+        }
+        mFFBWorkerRunning = false;
+    }
+    mFFBWorkerCv.notify_all();
+    if (mFFBWorkerThread.joinable()) {
+        mFFBWorkerThread.join();
+    }
+}
+
+void WheelManager::FFBWorkerLoop() {
+    auto lastStatusCheck = std::chrono::steady_clock::now();
+
+    while (true) {
+        int32_t levelToSend = 0;
+        bool hasNewForce = false;
+
+        {
+            std::unique_lock<std::mutex> qlock(mFFBQueueMutex);
+            mFFBWorkerCv.wait_for(qlock, std::chrono::milliseconds(1000), [this]() {
+                return !mFFBWorkerRunning || mForceDirty;
+            });
+
+            if (!mFFBWorkerRunning) {
+                break;
+            }
+
+            if (mForceDirty) {
+                levelToSend = mPendingForceLevel;
+                mForceDirty = false;
+                hasNewForce = true;
+            }
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const bool checkStatus = (now - lastStatusCheck) >= std::chrono::seconds(1);
+        if (checkStatus) {
+            lastStatusCheck = now;
+        }
+
+        if (!hasNewForce && !checkStatus) {
+            continue;
+        }
+
+        std::lock_guard<std::mutex> hlock(mHapticMutex);
+        if (!mHaptic || mConstantEffectId == -1) {
+            continue;
+        }
+
+        if (checkStatus) {
+            int status = SDL_HapticGetEffectStatus(mHaptic, mConstantEffectId);
+            mLastFFBEffectStatus.store(status, std::memory_order_relaxed);
+            if (status == 0) {
+                SPDLOG_WARN("Constant FFB effect was stopped by driver; restarting with INFINITY iterations.");
+                SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY);
+            }
+        }
+
+        if (hasNewForce) {
+            SDL_HapticEffect effect;
+            memset(&effect, 0, sizeof(SDL_HapticEffect));
+            effect.type = SDL_HAPTIC_CONSTANT;
+            effect.constant.direction.type = mConstantDirectionType;
+            effect.constant.direction.dir[0] = 1;
+            effect.constant.level = (Sint16)std::clamp((int)levelToSend, -32768, 32767);
+            effect.constant.length = SDL_HAPTIC_INFINITY;
+
+            int res = SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
+            mLastFFBUpdateResult.store(res, std::memory_order_relaxed);
+
+            if (res != 0) {
+                const char* errStr = SDL_GetError();
+                int errCount = mConsecutiveFFBErrors.fetch_add(1, std::memory_order_relaxed) + 1;
+                {
+                    std::lock_guard<std::mutex> qlock(mFFBQueueMutex);
+                    mLastFFBError = errStr ? errStr : "";
+                }
+                if (errCount == 1 || (errCount % 120 == 0)) {
+                    SPDLOG_ERROR("DirectInput FFB update failed: {} (consecutive failures: {})",
+                        (errStr && errStr[0] != '\0') ? errStr : "Unknown", errCount);
+                }
+                if (errCount >= 10) {
+                    SPDLOG_WARN("FFB failed for 10 frames - performing auto-rearm recovery...");
+                    ReInitHapticEffectsLocked();
+                    mConsecutiveFFBErrors.store(0, std::memory_order_relaxed);
+                } else {
+                    SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY);
+                }
+            } else {
+                int prevErrs = mConsecutiveFFBErrors.exchange(0, std::memory_order_relaxed);
+                if (prevErrs > 0) {
+                    SPDLOG_INFO("FFB recovered successfully after {} failed frames.", prevErrs);
+                    std::lock_guard<std::mutex> qlock(mFFBQueueMutex);
+                    mLastFFBError.clear();
+                }
+            }
+        }
+    }
 }
 
 void WheelManager::CloseJoystick() {
+    StopFFBWorker();
+    std::lock_guard<std::mutex> lock(mHapticMutex);
     if (mHaptic) {
         if (mConstantEffectId != -1) {
             SDL_HapticDestroyEffect(mHaptic, mConstantEffectId);
@@ -358,20 +489,6 @@ void WheelManager::CloseJoystick() {
 
 void WheelManager::UpdateFFB() {
     if (!mHaptic) return;
-
-    // DirectInput safety monitor: check status periodically (~1 Hz), not every single frame!
-    static int sStatusCheckCounter = 0;
-    if (++sStatusCheckCounter >= 60) {
-        sStatusCheckCounter = 0;
-        if (mConstantEffectId != -1) {
-            int status = SDL_HapticGetEffectStatus(mHaptic, mConstantEffectId);
-            mLastFFBEffectStatus = status;
-            if (status == 0) {
-                SPDLOG_WARN("Constant FFB effect was stopped by driver; restarting with INFINITY iterations.");
-                SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY);
-            }
-        }
-    }
 
     int16_t constantForce = 0;
     int16_t sineMagnitude = 0;
@@ -640,37 +757,18 @@ void WheelManager::UpdateFFB() {
 
     mLastCommandedForce = constantForce;
 
-    // Update Constant Effect
+    // Enqueue Constant Effect update asynchronously so USB HID writes never block the render thread
     if (mConstantEffectId != -1) {
-        SDL_HapticEffect effect;
-        memset(&effect, 0, sizeof(SDL_HapticEffect));
-        effect.type = SDL_HAPTIC_CONSTANT;
-        effect.constant.direction.type = mConstantDirectionType;
-        effect.constant.direction.dir[0] = 1;
-        effect.constant.level = std::max(-32768, std::min(32767, (int)constantForce));
-        effect.constant.length = SDL_HAPTIC_INFINITY;
-        mLastFFBUpdateResult = SDL_HapticUpdateEffect(mHaptic, mConstantEffectId, &effect);
-        if (mLastFFBUpdateResult != 0) {
-            mLastFFBError = SDL_GetError();
-            mConsecutiveFFBErrors++;
-            if (mConsecutiveFFBErrors == 1 || (mConsecutiveFFBErrors % 120 == 0)) {
-                SPDLOG_ERROR("DirectInput FFB update failed: {} (consecutive failures: {})", 
-                    mLastFFBError.empty() ? "Unknown" : mLastFFBError, mConsecutiveFFBErrors);
+        int32_t clampedLevel = std::clamp((int)constantForce, -32768, 32767);
+        if (!mHasQueuedForceOnce || clampedLevel != mLastQueuedForceLevel) {
+            mLastQueuedForceLevel = clampedLevel;
+            mHasQueuedForceOnce = true;
+            {
+                std::lock_guard<std::mutex> qlock(mFFBQueueMutex);
+                mPendingForceLevel = clampedLevel;
+                mForceDirty = true;
             }
-            // Auto-rearm / self-healing: if failed for 10 consecutive frames (~160ms), automatically recreate the effect
-            if (mConsecutiveFFBErrors >= 10) {
-                SPDLOG_WARN("FFB failed for 10 frames - performing auto-rearm recovery...");
-                ReInitHapticEffects();
-                mConsecutiveFFBErrors = 0;
-            } else {
-                SDL_HapticRunEffect(mHaptic, mConstantEffectId, SDL_HAPTIC_INFINITY);
-            }
-        } else {
-            if (mConsecutiveFFBErrors > 0) {
-                SPDLOG_INFO("FFB recovered successfully after {} failed frames.", mConsecutiveFFBErrors);
-            }
-            mConsecutiveFFBErrors = 0;
-            mLastFFBError.clear();
+            mFFBWorkerCv.notify_one();
         }
     }
 }
@@ -691,17 +789,19 @@ void WheelManager::RefreshJoysticks() {
 }
 
 bool WheelManager::IsEnabled() {
-    return CVarGetInteger("gWheel.Enabled", 0) && mJoystick != nullptr;
+    return mWheelEnabled && mJoystick != nullptr;
 }
 
 void WheelManager::Update() {
     if (!mJoystick) {
-        // Try to reconnect if guid is set
-        if (mJoystickGuid != "") {
+        // Throttle reconnect enumeration (~3s at 30 Hz) so unplugged wheel GUIDs don't poll HID every frame
+        if (!mJoystickGuid.empty() && ++mReconnectPollCounter >= 90) {
+            mReconnectPollCounter = 0;
             RefreshJoysticks();
         }
         return;
     }
+    mReconnectPollCounter = 0;
 
     // Check for mapping input
     if (mIsMappingButton) {
@@ -926,8 +1026,9 @@ void WheelManager::ProcessInput(OSContPad* pad) {
 }
 
 void WheelManager::DrawSettings() {
-    bool enabled = CVarGetInteger("gWheel.Enabled", 0);
+    bool enabled = mWheelEnabled;
     if (ImGui::Checkbox("Enable Racing Wheel", &enabled)) {
+        mWheelEnabled = enabled;
         CVarSetInteger("gWheel.Enabled", enabled);
         SaveSettings();
     }
@@ -942,8 +1043,9 @@ void WheelManager::DrawSettings() {
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("When enabled, the game will use whichever input (wheel or keyboard) has the stronger deflection. If disabled, the wheel completely overrides keyboard steering.");
 
-    bool nativeSteer = CVarGetInteger("gWheel.NativeSteer", 1);
+    bool nativeSteer = mNativeSteerEnabled;
     if (ImGui::Checkbox("Native Steering Physics", &nativeSteer)) {
+        mNativeSteerEnabled = nativeSteer;
         CVarSetInteger("gWheel.NativeSteer", nativeSteer);
         SaveSettings();
     }
@@ -1183,7 +1285,10 @@ void WheelManager::DrawHapticsSettings() {
 
     if (mFFBEnabled) {
         if (ImGui::SliderInt("Force Feedback Master Gain", &mFFBMasterGain, 0, 100, "%d%%")) {
-            if (mHaptic) SDL_HapticSetGain(mHaptic, mFFBMasterGain);
+            {
+                std::lock_guard<std::mutex> lock(mHapticMutex);
+                if (mHaptic) SDL_HapticSetGain(mHaptic, mFFBMasterGain);
+            }
             SaveSettings();
         }
 
@@ -1330,19 +1435,28 @@ void WheelManager::DrawHapticsSettings() {
     }
 
     const char* statusStr = "Not Created";
+    const int effectStatus = mLastFFBEffectStatus.load(std::memory_order_relaxed);
     if (mConstantEffectId != -1) {
-        if (mLastFFBEffectStatus == 1) statusStr = "Playing";
-        else if (mLastFFBEffectStatus == 0) statusStr = "Stopped (Auto-restarting)";
+        if (effectStatus == 1) statusStr = "Playing";
+        else if (effectStatus == 0) statusStr = "Stopped (Auto-restarting)";
         else statusStr = "Status Query Error";
     }
     ImGui::Text("FFB Motor Status: %s (Type: %s)", statusStr, 
         (mConstantDirectionType == SDL_HAPTIC_STEERING_AXIS) ? "STEERING_AXIS" : "CARTESIAN");
 
-    if (mLastFFBUpdateResult == 0) {
-        ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK (Auto-Rearms: %d)", mAutoRearmCount);
+    const int updateRes = mLastFFBUpdateResult.load(std::memory_order_relaxed);
+    const int autoRearms = mAutoRearmCount.load(std::memory_order_relaxed);
+    if (updateRes == 0) {
+        ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.35f, 1.0f), "DirectInput Update: OK (Auto-Rearms: %d)", autoRearms);
     } else {
+        std::string errCopy;
+        {
+            std::lock_guard<std::mutex> qlock(mFFBQueueMutex);
+            errCopy = mLastFFBError;
+        }
+        const int consecutiveErrs = mConsecutiveFFBErrors.load(std::memory_order_relaxed);
         ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "DirectInput Update Error: %s (Failures: %d, Auto-Rearms: %d)", 
-            mLastFFBError.empty() ? "Failed" : mLastFFBError.c_str(), mConsecutiveFFBErrors, mAutoRearmCount);
+            errCopy.empty() ? "Failed" : errCopy.c_str(), consecutiveErrs, autoRearms);
     }
 }
 
@@ -1399,7 +1513,7 @@ float WheelManager_GetBrake() {
 
 int WheelManager_IsNativeSteerActive() {
     WheelManager* wm = WheelManager::GetInstance();
-    return (wm->IsEnabled() && CVarGetInteger("gWheel.NativeSteer", 1)) ? 1 : 0;
+    return (wm->IsEnabled() && wm->IsNativeSteerEnabled()) ? 1 : 0;
 }
 
 int WheelManager_IsZUpActive() {

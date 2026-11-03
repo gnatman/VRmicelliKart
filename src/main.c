@@ -43,6 +43,7 @@
 
 #include "port/WheelManager.h"
 #include "port/TelemetryManager.h"
+#include <libultraship/bridge/VRHudBridge.h>
 
 // Declarations (not in this file)
 void func_80091B78(void);
@@ -812,15 +813,17 @@ void race_logic_loop(void) {
     display_debug_info();
 
     func_802A4300();
+    Ship_VR_EmitHudPassBegin(&gDisplayListHead);
     func_800591B4();
     func_80093E20();
+    Ship_VR_EmitHudPassEnd(&gDisplayListHead);
 #if DVDL
     display_dvdl();
 #endif
-    // Copies after all the main rendering is complete. This is accurate to hardware.
-    // This means things like jumbotron will have the pause menu rendered in it.
-    // To avoid that, this line can be moved above func_800591B4.
-    FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
+    // Only read back framebuffer on tracks that actually display it on a jumbotron (Luigi Raceway & Wario Stadium).
+    if ((IsLuigiRaceway() || IsWarioStadium()) && !CVarGetInteger("gVRDisableJumbotronReadback", 0)) {
+        FB_WriteFramebufferSliceToCPU(&gDisplayListHead, gPortFramebuffers[sRenderingFramebuffer], true);
+    }
     gDPFullSync(gDisplayListHead++);
     gSPEndDisplayList(gDisplayListHead++);
 

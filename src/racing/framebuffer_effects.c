@@ -69,8 +69,10 @@ void FB_CopyToFramebuffer(Gfx** gfxP, s32 fb_src, s32 fb_dest, u8 oncePerFrame, 
  * required if the buffer is being used as a texture in F3D.
  */
 void FB_WriteFramebufferSliceToCPU(Gfx** gfxP, void* buffer, u8 byteSwap) {
+    static u8 sJumbotronCopiedThisTick = 0;
+    sJumbotronCopiedThisTick = 0;
     Gfx* gfx = *gfxP;
-    FB_CopyToFramebuffer(&gfx, 0, gReusableFrameBuffer, false, NULL);
+    FB_CopyToFramebuffer(&gfx, 0, gReusableFrameBuffer, true, &sJumbotronCopiedThisTick);
     
     // Set the N64 resolution framebuffer as the draw target (320x240)
     gsSPSetFB(gfx++, gN64ResFrameBuffer);

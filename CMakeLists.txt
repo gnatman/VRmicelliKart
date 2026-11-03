@@ -456,9 +456,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
             "_DEBUG;"
             "_CRT_SECURE_NO_WARNINGS;"
             "ENABLE_DX11;"
+            "SPDLOG_ACTIVE_LEVEL=0;"
         ">"
-        "$<$<CONFIG:Release>:"
-            "NDEBUG"
+        "$<$<NOT:$<CONFIG:Debug>>:"
+            "NDEBUG;"
+            "SPDLOG_ACTIVE_LEVEL=2;"
         ">"
         "INCLUDE_GAME_PRINTF;"
         "NOMINMAX"
@@ -485,13 +487,14 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "CafeOS")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU|Clang|AppleClang")
   target_compile_definitions(${PROJECT_NAME} PRIVATE
   "$<$<CONFIG:Debug>:"
-   "_DEBUG"
+   "_DEBUG;"
+   "SPDLOG_ACTIVE_LEVEL=0;"
   ">"
-  "$<$<CONFIG:Release>:"
-   "NDEBUG"
+  "$<$<NOT:$<CONFIG:Debug>>:"
+   "NDEBUG;"
+   "SPDLOG_ACTIVE_LEVEL=2;"
   ">"
         "$<$<BOOL:${BUILD_CROWD_CONTROL}>:ENABLE_CROWD_CONTROL>"
-  "SPDLOG_ACTIVE_LEVEL=0;"
   "_CONSOLE;"
   "_CRT_SECURE_NO_WARNINGS;"
   "UNICODE;"
@@ -554,6 +557,7 @@ endif()
 
 option(USE_STANDALONE "Build as a standalone executable" OFF)
 option(BUILD_STORMLIB "Build with StormLib support" OFF)
+option(ENABLE_AVX2 "Enable AVX2 instructions on x86_64 Release builds" ON)
 
 option(BUILD_SM64 "Build with Super Mario 64 support" OFF)
 option(BUILD_MK64 "Build with Mario Kart 64 support" ON)
@@ -584,16 +588,21 @@ endif()
 # Compile and link options
 ################################################################################
 if(MSVC)
-  if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
+  if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64" OR CMAKE_SIZEOF_VOID_P EQUAL 8)
     target_compile_options(${PROJECT_NAME} PRIVATE
           $<$<CONFIG:Debug>:
               /w;
               /Od;
               /MTd
           >
-          $<$<CONFIG:Release>:
+          $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:
+              /O2;
+              /Ob2;
+              /Ot;
               /Oi;
               /Gy;
+              /Gw;
+              $<$<BOOL:${ENABLE_AVX2}>:/arch:AVX2>;
               /W3;
               /MT
           >
@@ -622,12 +631,12 @@ if(MSVC)
           ${DEFAULT_CXX_EXCEPTION_HANDLING}
       )
   endif()
-  if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
+  if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64" OR CMAKE_SIZEOF_VOID_P EQUAL 8)
     target_link_options(${PROJECT_NAME} PRIVATE
           $<$<CONFIG:Debug>:
               /INCREMENTAL
           >
-          $<$<CONFIG:Release>:
+          $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:
               /OPT:REF;
               /OPT:ICF;
               /INCREMENTAL:NO;
